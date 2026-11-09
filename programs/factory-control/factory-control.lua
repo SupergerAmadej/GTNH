@@ -65,11 +65,36 @@ local function savePair(path, value)
   assert(filesystem.rename(temporary, path))
 end
 
+-- English names for common GTNH controllers with opaque registry IDs.
+local controllerNames = {
+  assemblyline = "Assembly Line",
+  basiccompressor = "Large Electric Compressor",
+  blastfurnace = "Electric Blast Furnace",
+  brickedblastfurnace = "Bricked Blast Furnace",
+  chemicalreactor = "Large Chemical Reactor",
+  distillationtower = "Distillation Tower",
+  fluidextractor = "Large Fluid Extractor",
+  heatexchanger = "Large Heat Exchanger",
+  implosioncompressor = "Implosion Compressor",
+  largegasturbine = "Large Gas Turbine",
+  largehpturbine = "Large HP Steam Turbine",
+  largeplasmaturbine = "Large Plasma Turbine",
+  largeturbine = "Large Steam Turbine",
+  multifurnace = "Multi Smelter",
+  oreprocessor = "Integrated Ore Factory",
+  pyro = "Pyrolyse Oven",
+  supercapacitor = "Lapotronic Supercapacitor",
+  vacuumfreezer = "Vacuum Freezer",
+}
+
 local function controllerName(address)
   local ok, name = pcall(component.invoke, address, "getName")
   if ok and isLabel(name) then
-    name = name:gsub("^multimachine%.", ""):gsub("[_.]", " ")
-    if isLabel(name) then return name:sub(1, 64) end
+    local id = name:gsub("^gt%.blockmachines%.", ""):gsub("^multimachine%.", "")
+    local label = controllerNames[id:lower()]
+    if label then return label end
+    label = id:gsub("(%l)(%u)", "%1 %2"):gsub("[_.%-]+", " "):match("^%s*(.-)%s*$")
+    if isLabel(label) then return (label:gsub("%f[%w]%l", string.upper)):sub(1, 64) end
   end
   return "Controller " .. address:sub(1, 8)
 end
@@ -145,7 +170,7 @@ local function decodeStatus(payload)
   }
 end
 
-local function runAgent(settings, send, receive, statePath)
+local function runAgent(settings, send, receive, statePath, requestControl)
   local legacy = settings.controller
   local configured = settings.controllers
   if legacy ~= nil then
@@ -164,8 +189,9 @@ local function runAgent(settings, send, receive, statePath)
   local central = pinnedCentral
   if central == nil and filesystem.exists(statePath) then central = readPair(statePath) or "" end
   assert(central == nil or isAddress(central), "Invalid central modem address in config or pairing state")
-  -- A broadcast pairing only authorizes telemetry. Control needs a local address pin.
-  local allowControl = settings.allowControl == true and pinnedCentral ~= nil
+  assert(not requestControl or central, "Pair this computer in agent mode before running agent-control")
+  -- Require a local opt-in tied to an already known central modem.
+  local allowControl = requestControl or (settings.allowControl == true and pinnedCentral ~= nil)
   local token
   local label = settings.name
   assert(label == nil or (isLabel(label) and #label <= 64), "Set agent.name to a label of up to 64 characters")
@@ -173,7 +199,8 @@ local function runAgent(settings, send, receive, statePath)
     token = require("uuid").next()
     print("Open Add agent on central. Ctrl+C to exit.")
   else
-    print("Factory agent paired to " .. central .. ". Ctrl+C to exit.")
+    local mode = allowControl and "Machine control enabled" or "Monitoring only"
+    print("Factory agent paired to " .. central .. ". " .. mode .. ". Ctrl+C to exit.")
   end
   local function sendResult(id, address, applied)
     if legacy then
@@ -409,7 +436,8 @@ local function drawCentral(gpu, hall, machines, agentCount, selected, pending, p
   elseif selected and selected.status then
     local status = selected.status
     local state = machineState(selected)
-    detail(5, string.format("%02d  %s", selected.number, selected.name))
+    local title = string.format("%02d  %s", selected.number, selected.name)
+    detail(5, #title <= detailWidth and title or selected.name)
     detail(6, state .. (selected.online and "" or " (last reading)"))
     detail(7, string.format("XYZ %d, %d, %d", status.x, status.y, status.z))
     detail(8, "Work " .. (status.enabled and "enabled" or "disabled"))
@@ -645,9 +673,11 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
 end
 
 local role, first, second, third, extra = ...
+local requestControl = role == "agent-control"
+if requestControl then role = "agent" end
 if role == "dashboard" then role = "central" end
 if extra or (role ~= "agent" and role ~= "central") or (role == "agent" and second) then
-  print("Usage: lua factory-control.lua agent [config.lua]")
+  print("Usage: lua factory-control.lua agent|agent-control [config.lua]")
   print("       lua factory-control.lua -- central [X1,Z1 X2,Z2] [config.lua]")
   return
 end
@@ -727,7 +757,12 @@ local function main()
   end
 
   assert(modem.open(port), "Port is already open on this modem. Stop the other program or change port.")
-  local ok, reason = pcall(role == "agent" and runAgent or runCentral, settings, send, receive, statePath, gpu, screen, hall)
+  local ok, reason
+  if role == "agent" then
+    ok, reason = pcall(runAgent, settings, send, receive, statePath, requestControl)
+  else
+    ok, reason = pcall(runCentral, settings, send, receive, statePath, gpu, screen, hall)
+  end
   pcall(modem.close, port)
   if gpu then
     pcall(gpu.setForeground, foreground, fgPalette)

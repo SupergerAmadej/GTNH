@@ -11,8 +11,8 @@ return {
     -- },
     -- controller = "CONTROLLER_COMPONENT_ADDRESS", -- Legacy single-controller mode.
     -- name = "Factory Hall West", -- Agent label advertised when pairing.
-    -- centralModem = "CENTRAL_WIRELESS_MODEM_ADDRESS", -- Manual pairing and remote control.
-    allowControl = false,
+    -- centralModem = "CENTRAL_WIRELESS_MODEM_ADDRESS", -- Manual pairing.
+    allowControl = false, -- Set true with centralModem to enable control in normal agent mode.
   },
 
   central = {

@@ -32,6 +32,18 @@ Both computers save their pairings under `state/` beside their config. Start eac
 
 To move an automatically paired agent to a new central computer, stop the agent and remove its `state/config.lua.agent` file before starting it again. To remove its entry from the old central computer, stop the program there and delete the file named after the agent's modem address inside `state/config.lua.dashboard/`. Central uses the original state directory to preserve existing pairings. If you use a custom config filename, the state paths use that filename in place of `config.lua`.
 
+## Enable machine controls
+
+Pair the agent in `agent` mode first. On the agent, press **Ctrl+C** and start it again from the same directory.
+
+```sh
+lua factory-control.lua agent-control
+```
+
+This enables per-machine controls for that run using the saved central modem address. If you paired using a custom config filename, pass the same filename after `agent-control`. Select a controller on central to use **Disable work** or **Enable work**. Restart an automatically paired agent in `agent` mode to return to monitoring.
+
+For a manual pairing, you can keep controls enabled in normal `agent` mode by setting `agent.centralModem` and `agent.allowControl = true` in the local config.
+
 ## Set the hall layout
 
 Give `central` two `X,Z` coordinates. The first maps to the upper left and the second maps to the lower right. Use world coordinates for the hall corners. Either axis can run in decreasing order if the screen should face that way.
@@ -50,6 +62,7 @@ Copy `config.example.lua` to `config.lua` to override the defaults. An optional 
 
 - If a computer has multiple wireless modems, set `modem` to the full address from `components modem`.
 - Automatic discovery uses multiblock scanner readings to distinguish controllers from cables, hatches, and single-block machines. Use `agent.controllers` to select controllers explicitly if a multiblock uses an unrecognized scanner format, or to give controllers custom display names. The keys are full controller addresses from `components -l` and the values are labels.
+- Automatically discovered controllers use known English game names where available. Other names are formatted from their registry IDs. A label in `agent.controllers` takes precedence.
 - An existing `agent.controller` setting keeps that agent in legacy single-controller mode. Remove it to discover all connected controllers, or replace it with `agent.controllers`.
 - To advertise a custom agent name, set `agent.name` before pairing. A `central.machines` entry for the agent's modem address takes precedence over its saved agent label.
 - For manual pairing, set `agent.centralModem` and a matching `central.machines` entry. Set the same `port` on all computers if you override `34173`.
@@ -67,7 +80,7 @@ print(require("component").invoke("CONTROLLER_ADDRESS", "getCoordinates"))
 1. Look for a blue square on the map while an enabled machine is idle, and a green square once it starts work. Red takes priority when the scanner reports maintenance problems. Gray indicates a disabled machine or one whose last report is at least 10 seconds old.
 2. Select a square or a row under **Machines** to see its label, coordinates, work permission, progress, maintenance count, and usage in EU/t. Maintenance and usage are read from the English `Problems` and `Currently uses` scanner lines. Central shows unavailable fields as `unknown` or `--`.
 3. Disconnect one controller from the agent. Check that its square goes gray and the other machines keep updating. Reconnect it and check that it resumes reporting.
-4. To try control, verify the control-room modem address and set it explicitly as `agent.centralModem` in the agent's config. The agent prints the paired address at startup. Set `agent.allowControl = true` and restart the agent. Select one controller and touch **Disable work** or **Enable work**. Check that central confirms the setting and that only the selected controller's work permission changes.
+4. Restart the paired agent in `agent-control` mode. Select one controller and touch **Disable work** or **Enable work**. Check that central confirms the setting and that only the selected controller's work permission changes.
 
 Wireless pairing grants monitoring. Enable commands on a trusted network and use OpenOS `useradd` on central to limit touchscreen input to its operators. Keep live config and pairing state on the in-game computers.
 
