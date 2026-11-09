@@ -1,0 +1,18 @@
+# Local coding instructions
+/AGENTS.md
+
+# Per-computer settings and runtime state
+/programs/*/config.lua
+/programs/*/state/
+*.log
+
+# Local Lua compiler output
+luac.out
+*.luac
+
+# Editor and OS artifacts
+*.swp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
