@@ -16,6 +16,22 @@ local function isInteger(value)
   return type(value) == "number" and math.abs(value) < math.huge and value % 1 == 0
 end
 
+local function isInt32(value)
+  return isInteger(value) and value >= -2147483648 and value <= 2147483647
+end
+
+local function parseCorner(value)
+  if type(value) ~= "string" then return end
+  local x, z = value:match("^%s*([+-]?%d+)%s*,%s*([+-]?%d+)%s*$")
+  if x then
+    x, z = tonumber(x), tonumber(z)
+    if isInt32(x) and isInt32(z) then return x, z end
+  else
+    x = tonumber(value:match("^%s*([+-]?%d+)%s*$") or "")
+    if isInt32(x) then return x end
+  end
+end
+
 local function isAddress(value)
   return type(value) == "string" and #value == 36
     and value:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x+$")
@@ -58,13 +74,14 @@ local function controllerName(address)
   return "Controller " .. address:sub(1, 8)
 end
 
-local function findControllers(previous)
+local function findCandidates()
   local found = {}
   for address in component.list() do
     local methods = component.methods(address)
     if methods and methods.getCoordinates ~= nil and methods.isMachineActive ~= nil
-        and methods.isWorkAllowed ~= nil and methods.getWorkProgress ~= nil and methods.getWorkMaxProgress ~= nil then
-      found[address] = previous[address] or controllerName(address)
+        and methods.isWorkAllowed ~= nil and methods.getWorkProgress ~= nil and methods.getWorkMaxProgress ~= nil
+        and methods.getSensorInformation ~= nil then
+      found[address] = true
     end
   end
   return found
@@ -72,20 +89,26 @@ end
 
 local function readScanner(address)
   local ok, lines = pcall(component.invoke, address, "getSensorInformation")
-  local problems, usage
+  local problems, usage, multiblock
   if ok and type(lines) == "table" then
     for _, line in ipairs(lines) do
       if type(line) == "string" then
         local plain = line:gsub("§[0-9a-fk-orA-FK-OR]", "")
         problems = tonumber(plain:match("^Problems:%s*(%d+)%s*$")) or problems
         usage = plain:match("^Currently uses:%s*([%d.,eE+%-]+)%s*EU/t%s*$") or usage
+        if plain:match("^GT5U%.multiblock%.scanner%.")
+            or plain:match("^kekztech%.infodata%.lapotronic_super_capacitor%.") then
+          multiblock = true
+        end
       end
     end
   end
-  return problems, usage
+  return problems, usage, problems ~= nil or multiblock
 end
 
-local function readMachine(address, allowControl)
+local function readMachine(address, allowControl, requireMultiblock)
+  local problems, usage, multiblock = readScanner(address)
+  if requireMultiblock and not multiblock then return end
   local machine = component.proxy(address)
   local x, y, z = machine.getCoordinates()
   assert(isInteger(x) and isInteger(y) and isInteger(z), "Controller coordinates unavailable")
@@ -93,7 +116,6 @@ local function readMachine(address, allowControl)
   local progress, maximum = machine.getWorkProgress(), machine.getWorkMaxProgress()
   assert(type(active) == "boolean" and type(enabled) == "boolean"
     and isInteger(progress) and isInteger(maximum), "Controller state unavailable")
-  local problems, usage = readScanner(address)
   return table.concat({x, y, z, active and 1 or 0, enabled and 1 or 0, progress, maximum,
     problems or "", usage or "", allowControl and machine.setWorkAllowed and 1 or 0}, "\t")
 end
@@ -107,7 +129,7 @@ local function decodeStatus(payload)
   if #fields ~= 10 then return end
   for _, index in ipairs({1, 2, 3, 6, 7}) do
     local value = tonumber(fields[index])
-    if not isInteger(value) or value < -2147483648 or value > 2147483647 then return end
+    if not isInt32(value) then return end
     fields[index] = value
   end
   local problems = tonumber(fields[8])
@@ -137,25 +159,27 @@ local function runAgent(settings, send, receive, statePath)
         "Each agent.controllers entry needs a full component address and a label of up to 64 characters")
     end
   end
-  local dashboard = settings.dashboardModem
-  if dashboard == nil and filesystem.exists(statePath) then dashboard = readPair(statePath) or "" end
-  assert(dashboard == nil or isAddress(dashboard), "Invalid dashboard modem address in config or pairing state")
+  local pinnedCentral = settings.centralModem
+  if pinnedCentral == nil then pinnedCentral = settings.dashboardModem end
+  local central = pinnedCentral
+  if central == nil and filesystem.exists(statePath) then central = readPair(statePath) or "" end
+  assert(central == nil or isAddress(central), "Invalid central modem address in config or pairing state")
   -- A broadcast pairing only authorizes telemetry. Control needs a local address pin.
-  local allowControl = settings.allowControl == true and settings.dashboardModem ~= nil
+  local allowControl = settings.allowControl == true and pinnedCentral ~= nil
   local token
   local label = settings.name
   assert(label == nil or (isLabel(label) and #label <= 64), "Set agent.name to a label of up to 64 characters")
-  if not dashboard then
+  if not central then
     token = require("uuid").next()
-    print("Waiting for Add agent on the dashboard. Ctrl+C to exit.")
+    print("Open Add agent on central. Ctrl+C to exit.")
   else
-    print("Factory agent paired to " .. dashboard .. ". Ctrl+C to exit.")
+    print("Factory agent paired to " .. central .. ". Ctrl+C to exit.")
   end
   local function sendResult(id, address, applied)
     if legacy then
-      send(dashboard, "result", id, applied)
+      send(central, "result", id, applied)
     else
-      send(dashboard, "machine-result", id, address, applied)
+      send(central, "machine-result", id, address, applied)
     end
   end
 
@@ -176,33 +200,40 @@ local function runAgent(settings, send, receive, statePath)
       end
     end
     if now >= nextSample then
-      controllers = configured or findControllers(controllers)
+      local candidates = configured or findCandidates()
       local addresses = {}
-      for address in pairs(controllers) do addresses[#addresses + 1] = address end
+      for address in pairs(candidates) do addresses[#addresses + 1] = address end
       table.sort(addresses)
-      local firstError, preview
+      local found, count = {}, 0
+      local firstError, preview, previewAddress
       for _, address in ipairs(addresses) do
-        local ok, payload = pcall(readMachine, address, allowControl)
-        if ok then
-          if not dashboard then
-            preview = preview or payload
+        local ok, payload = pcall(readMachine, address, allowControl, not configured)
+        if ok and payload then
+          local name = configured and configured[address] or controllers[address] or controllerName(address)
+          found[address], count = name, count + 1
+          if not central then
+            if not preview then preview, previewAddress = payload, address end
           elseif legacy then
-            ok = send(dashboard, "status", payload)
+            ok = send(central, "status", payload)
           else
-            ok = send(dashboard, "machine-status", address, controllers[address], payload)
+            ok = send(central, "machine-status", address, name, payload)
           end
           if not ok then firstError = firstError or "Could not send status. Check the wireless card and power." end
-        else
-          firstError = firstError or (controllers[address] .. ": " .. tostring(payload))
+        elseif not ok then
+          local name = configured and configured[address] or controllers[address] or address
+          firstError = firstError or (name .. ": " .. tostring(payload))
         end
       end
-      if not dashboard and preview then
-        local name = label or (#addresses == 1 and controllers[addresses[1]]) or ("Agent " .. addresses[1]:sub(1, 8))
-        if not send(nil, "hello", token, name, preview, #addresses) then
+      controllers = found
+      if not central and preview then
+        local name = label or (count == 1 and controllers[previewAddress]) or ("Agent " .. previewAddress:sub(1, 8))
+        if not send(nil, "hello", token, name, preview, count) then
           firstError = firstError or "Could not send pairing broadcast. Check the wireless card and power."
         end
       end
-      if #addresses == 0 then firstError = "No compatible controllers found. Check the Adapter connections." end
+      if count == 0 and not firstError then
+        firstError = "No multiblock controllers found. Check the Adapters and scanner information."
+      end
       if firstError and firstError ~= lastError then print(firstError) end
       lastError = firstError
       nextSample = computer.uptime() + sampleInterval
@@ -211,15 +242,15 @@ local function runAgent(settings, send, receive, statePath)
     local wakeAt = pending and math.min(nextSample, pending.checkAt) or nextSample
     local signal, sender, kind, id, target, enabled = receive(math.max(0, wakeAt - computer.uptime()))
     if signal == "interrupted" then return end
-    if not dashboard and kind == "pair" and id == token and isAddress(sender) then
+    if not central and kind == "pair" and id == token and isAddress(sender) then
       local saved, reason = pcall(savePair, statePath, sender)
       if saved then
-        dashboard, nextSample = sender, 0
-        print("Paired with dashboard " .. dashboard .. ". Monitoring only.")
+        central, nextSample = sender, 0
+        print("Paired with central " .. central .. ". Monitoring only.")
       else
         print("Could not save pairing: " .. tostring(reason))
       end
-    elseif dashboard and sender == dashboard and type(id) == "string" and #id <= 64 then
+    elseif central and sender == central and type(id) == "string" and #id <= 64 then
       if legacy and kind == "set-work" then
         target, enabled = legacy, target
       elseif legacy or kind ~= "set-machine" or not isAddress(target) then
@@ -277,7 +308,7 @@ local function fitHall(machines)
     spanX = spanX, spanZ = spanZ}
 end
 
-local function drawDashboard(gpu, hall, machines, agentCount, selected, pending, pairing, listPage)
+local function drawCentral(gpu, hall, machines, agentCount, selected, pending, pairing, listPage)
   local width, height = gpu.getViewport()
   local view = {markers = {}, offers = {}, rows = {}}
   gpu.setBackground(colors.background)
@@ -296,7 +327,9 @@ local function drawDashboard(gpu, hall, machines, agentCount, selected, pending,
   end
 
   gpu.set(2, 1, "FACTORY CONTROL  |  HALL MAP")
-  gpu.set(2, 2, "X east >  Z south v")
+  local right = hall and hall.spanX < 0 and "west" or "east"
+  local down = hall and hall.spanZ < 0 and "north" or "south"
+  gpu.set(2, 2, "X " .. right .. " >  Z " .. down .. " v")
   local addLabel = pairing and " Close pairing " or " Add agent "
   local listLabel = listPage and " Back " or " Machines "
   gpu.setBackground(colors.standby)
@@ -339,7 +372,7 @@ local function drawDashboard(gpu, hall, machines, agentCount, selected, pending,
     detail(5, "PAIR A NEW AGENT")
     if #pairing.offers == 0 then
       detail(7, (agentCount >= machineLimit or #machines >= machineLimit)
-        and "Dashboard limit reached" or "Waiting for a new agent...")
+        and "Central limit reached" or "Waiting for a new agent...")
     end
     for index, offer in ipairs(pairing.offers) do
       local row = 7 + 2 * (index - 1)
@@ -410,17 +443,17 @@ local function drawDashboard(gpu, hall, machines, agentCount, selected, pending,
   return view
 end
 
-local function runDashboard(settings, send, receive, statePath, gpu, screen)
-  local hall, peers = settings.hall, settings.machines or {}
+local function runCentral(settings, send, receive, statePath, gpu, screen, bounds)
+  local hall, peers = bounds or settings.hall, settings.machines or {}
   assert(hall == nil or (type(hall) == "table" and isInteger(hall.originX) and isInteger(hall.originZ)
-    and isInteger(hall.spanX) and hall.spanX > 0 and isInteger(hall.spanZ) and hall.spanZ > 0),
-    "Set dashboard.hall originX, originZ, spanX and spanZ")
-  assert(type(peers) == "table", "Set dashboard.machines to a modem address -> label table")
+    and isInteger(hall.spanX) and hall.spanX ~= 0 and isInteger(hall.spanZ) and hall.spanZ ~= 0),
+    "Set central.hall originX, originZ and nonzero spanX and spanZ")
+  assert(type(peers) == "table", "Set central.machines to a modem address -> label table")
   local machines, agents, agentCount = {}, {}, 0
   local function addAgent(address, name)
-    assert(agentCount < machineLimit, "Dashboard agent limit reached")
+    assert(agentCount < machineLimit, "Central agent limit reached")
     assert(isAddress(address) and isLabel(name),
-      "Each dashboard agent needs a full modem address and a plain-text label")
+      "Each central agent entry needs a full modem address and a plain-text label")
     agents[address] = {address = address, name = name, machines = {}}
     agentCount = agentCount + 1
   end
@@ -492,7 +525,7 @@ local function runDashboard(settings, send, receive, statePath, gpu, screen)
       pending, dirty = nil, true
     end
     if dirty and now >= redrawAt then
-      view = drawDashboard(gpu, hall or fitHall(machines), machines, agentCount, selected, pending, pairing, listPage)
+      view = drawCentral(gpu, hall or fitHall(machines), machines, agentCount, selected, pending, pairing, listPage)
       dirty = false
       redrawAt = computer.uptime() + redrawInterval
     end
@@ -611,13 +644,27 @@ local function runDashboard(settings, send, receive, statePath, gpu, screen)
   end
 end
 
-local role, configPath, extra = ...
-if extra or (role ~= "agent" and role ~= "dashboard") then
-  print("Usage: lua factory-control.lua agent|dashboard [config.lua]")
+local role, first, second, third, extra = ...
+if role == "dashboard" then role = "central" end
+if extra or (role ~= "agent" and role ~= "central") or (role == "agent" and second) then
+  print("Usage: lua factory-control.lua agent [config.lua]")
+  print("       lua factory-control.lua -- central [X1,Z1 X2,Z2] [config.lua]")
   return
 end
 
 local function main()
+  local configPath, hall = first, nil
+  if second then
+    local left, top = parseCorner(first)
+    local right, bottom = parseCorner(second)
+    assert(left and right and ((top == nil) == (bottom == nil)), "Use two X,Z corners or two integers for a square")
+    top, bottom = top or left, bottom or right
+    assert(left ~= right and top ~= bottom, "Hall corners must differ on both X and Z")
+    hall = {originX = left, originZ = top, spanX = right - left, spanZ = bottom - top}
+    configPath = third
+  elseif role == "central" and parseCorner(first) then
+    error("Specify both hall corners", 0)
+  end
   local path = shell.resolve(configPath or "config.lua")
   local config = {}
   if configPath or filesystem.exists(path) then
@@ -625,9 +672,13 @@ local function main()
     assert(type(config) == "table", "Config must return a table")
   end
   local port = config.port == nil and 34173 or config.port
-  local settings = config[role] == nil and {} or config[role]
+  local settings = config[role]
+  if settings == nil and role == "central" then settings = config.dashboard end
+  if settings == nil then settings = {} end
   assert(type(settings) == "table", "Invalid " .. role .. " config")
-  local statePath = filesystem.concat(filesystem.path(path), "state", filesystem.name(path) .. "." .. role)
+  -- Keep the original state filename so existing central pairings are reused.
+  local stateRole = role == "central" and "dashboard" or role
+  local statePath = filesystem.concat(filesystem.path(path), "state", filesystem.name(path) .. "." .. stateRole)
   assert(isInteger(port) and port >= 1 and port <= 65535, "Set port to an integer from 1 to 65535")
   local modem
   if config.modem then
@@ -666,9 +717,9 @@ local function main()
   end
 
   local gpu, screen, foreground, fgPalette, background, bgPalette
-  if role == "dashboard" then
+  if role == "central" then
     local term = require("term")
-    assert(term.isAvailable(), "Connect a graphics card and touchscreen to the dashboard")
+    assert(term.isAvailable(), "Connect a graphics card and touchscreen to central")
     gpu = term.gpu()
     screen = gpu.getScreen()
     foreground, fgPalette = gpu.getForeground()
@@ -676,7 +727,7 @@ local function main()
   end
 
   assert(modem.open(port), "Port is already open on this modem. Stop the other program or change port.")
-  local ok, reason = pcall(role == "agent" and runAgent or runDashboard, settings, send, receive, statePath, gpu, screen)
+  local ok, reason = pcall(role == "agent" and runAgent or runCentral, settings, send, receive, statePath, gpu, screen, hall)
   pcall(modem.close, port)
   if gpu then
     pcall(gpu.setForeground, foreground, fgPalette)
