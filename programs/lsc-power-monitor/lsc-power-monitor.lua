@@ -31,6 +31,11 @@ local function findBanks()
   return banks
 end
 
+local maintenanceStatus = {
+  ["kekztech.infodata.multi.maintenance_status.ok"] = "OK",
+  ["kekztech.infodata.multi.maintenance_status.bad"] = "NEEDS REPAIR",
+}
+
 local function readBank(bank)
   local ok, stored, capacity, info = pcall(function()
     return component.invoke(bank, "getStoredEUString"),
@@ -43,6 +48,7 @@ local function readBank(bank)
 
   local readings = {}
   for _, line in ipairs(type(info) == "table" and info or {}) do
+    readings.maintenance = maintenanceStatus[line] or readings.maintenance
     -- Scanner arguments are separated by two literal backslashes.
     local key, value = line:match("^kekztech%.infodata%.lapotronic_super_capacitor%.([^\\]+)\\\\([^\\]+)")
     if key then
@@ -108,6 +114,7 @@ local function draw(gpu, width, height, dx, dy, bank, reading, message, footer)
     rows[4] = "[" .. string.rep("#", filled) .. string.rep("-", barWidth - filled) .. "]"
     rows[6] = "Stored    " .. energyText(reading.stored, width - 13) .. " EU"
     rows[7] = "Capacity  " .. energyText(reading.capacity, width - 13) .. " EU"
+    rows[8] = "Maintenance: " .. (reading.maintenance or "unavailable")
     rows[9] = "Input  (5s)  " .. rateText(reading["avg_eu_in.sec"])
     rows[10] = "Output (5s)  " .. rateText(reading["avg_eu_out.sec"])
     rows[11] = "Passive loss " .. rateText(reading.passive_loss)

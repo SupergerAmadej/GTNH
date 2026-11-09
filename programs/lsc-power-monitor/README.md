@@ -1,6 +1,6 @@
 # LSC power monitor
 
-An OpenOS dashboard for one Lapotronic Supercapacitor. It refreshes about once a second and shows stored EU, total capacity, charge percentage, a charge bar, five-second average input and output in EU/t, and passive loss in EU/t.
+An OpenOS dashboard for one Lapotronic Supercapacitor. It refreshes about once a second and shows stored EU, total capacity, charge percentage, a charge bar, maintenance status, five-second average input and output in EU/t, and passive loss in EU/t. If it shows `Maintenance: NEEDS REPAIR`, check the maintenance hatch for the specific faults.
 
 ## Hardware and setup
 
