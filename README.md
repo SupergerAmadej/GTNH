@@ -30,5 +30,6 @@ Use `main` to fetch the latest pushed code while developing. Replace `main` with
 
 ## Programs
 
+- [Factory Control](programs/factory-control/README.md) maps wireless multiblock agents on a touchscreen and provides per-machine details and work controls.
 - [HDD copy](programs/hdd-copy/README.md) copies the contents of a managed OpenComputers HDD to an empty drive.
 - [LSC power monitor](programs/lsc-power-monitor/README.md) shows charge, input, output, and passive loss for a Lapotronic Supercapacitor.
