@@ -31,10 +31,12 @@ Press **Ctrl+C** to return to the shell. For a repeatable install, replace `main
 Build each wall from six OpenComputers Screen blocks of the same tier, three blocks wide and two tall. Leave a block gap between walls on the same plane so they form separate displays. Connect each wall to the computer's OpenComputers network with cable. Run `components screen` to check that each wall appears as one screen component.
 
 ```sh
-lua lsc-power-monitor.lua --mirror
+lua lsc-power-monitor.lua -- --mirror
 ```
 
-The monitor uses one graphics card to update each connected 3×2 wall in turn from the same LSC reading. The OpenOS terminal also shows the dashboard and reports how many 3×2 walls updated. The terminal counts as a wall if it is itself 3×2. Keep a keyboard on the terminal screen for Ctrl+C. To select a particular bank, run `lua lsc-power-monitor.lua --mirror LSC_ADDRESS`.
+The first `--` tells the OpenOS Lua launcher to pass `--mirror` through to the script. To select a particular bank, run `lua lsc-power-monitor.lua -- --mirror LSC_ADDRESS`.
+
+The monitor uses one graphics card to update each connected 3×2 wall in turn from the same LSC reading. The OpenOS terminal also shows the dashboard and reports how many 3×2 walls updated. The terminal counts as a wall if it is itself 3×2. Keep a keyboard on the terminal screen for Ctrl+C.
 
 ## Compatibility
 

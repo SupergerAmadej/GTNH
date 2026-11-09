@@ -4,7 +4,7 @@ local shell = require("shell")
 local term = require("term")
 local unicode = require("unicode")
 
-local usage = "Usage: lua lsc-power-monitor.lua [--mirror] [LSC address]"
+local usage = "Usage: lua lsc-power-monitor.lua [-- --mirror] [LSC address]"
 local args, options = shell.parse(...)
 local address = args[1]
 if options.help then
