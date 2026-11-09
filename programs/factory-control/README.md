@@ -44,6 +44,19 @@ This enables per-machine controls for that run using the saved central modem add
 
 For a manual pairing, you can keep controls enabled in normal `agent` mode by setting `agent.centralModem` and `agent.allowControl = true` in the local config.
 
+### Start agent-control at boot
+
+On a paired agent, stop the foreground process with **Ctrl+C**. Run these commands from the same directory you used to pair it. Use the filename you downloaded in the first command.
+
+```sh
+lua factory-control.lua agent-autostart
+rc factory-control start
+```
+
+`agent-autostart` registers an OpenOS boot service for that script and its current central pairing. Pass the same config filename after `agent-autostart` if you used a custom one when pairing. The second command starts the service immediately. OpenOS starts it in the background on subsequent boots, including on headless agents.
+
+Use `rc factory-control stop` to stop the running service and `rc factory-control disable` to turn off future boot starts. For upgrades, keep the registered script at the same path and run `rc factory-control restart` to load the updated file. To use a different script, config path, or central pairing, stop and disable the service, remove `/etc/rc.d/factory-control.lua`, then run `agent-autostart` again.
+
 ## Set the hall layout
 
 Give `central` two `X,Z` coordinates. The first maps to the upper left and the second maps to the lower right. Use world coordinates for the hall corners. Either axis can run in decreasing order if the screen should face that way.

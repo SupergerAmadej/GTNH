@@ -41,28 +41,41 @@ local function isLabel(value)
   return type(value) == "string" and value:match("^[ -~]+$")
 end
 
-local function readPair(path)
+local function readFile(path, format)
   local file = assert(io.open(path, "r"))
-  local value = file:read("*l")
+  local value = file:read(format)
   file:close()
   return value
 end
 
-local function savePair(path, value)
+local function writeNewFile(path, value)
   local directory = filesystem.path(path)
   if not filesystem.exists(directory) then assert(filesystem.makeDirectory(directory)) end
-  if filesystem.exists(path) then
-    assert(readPair(path) == value, "A different pairing is already saved")
-    return
-  end
-  -- Keep incomplete writes separate from valid pairings.
+  -- Keep incomplete writes separate from the file the reader will use.
   local temporary = path .. ".tmp"
   local file = assert(io.open(temporary, "w"))
-  local written, writeError = file:write(value, "\n")
+  local written, writeError = file:write(value)
   local flushed, flushError = file:flush()
   file:close()
   assert(written and flushed, writeError or flushError)
   assert(filesystem.rename(temporary, path))
+end
+
+local function savePair(path, value)
+  if filesystem.exists(path) then
+    assert(readFile(path, "*l") == value, "A different pairing is already saved")
+  else
+    writeNewFile(path, value .. "\n")
+  end
+end
+
+local function pairedCentral(settings, statePath)
+  local pinned = settings.centralModem
+  if pinned == nil then pinned = settings.dashboardModem end
+  local central = pinned
+  if central == nil and filesystem.exists(statePath) then central = readFile(statePath, "*l") or "" end
+  assert(central == nil or isAddress(central), "Invalid central modem address in config or pairing state")
+  return central, pinned ~= nil
 end
 
 -- English names for common GTNH controllers with opaque registry IDs.
@@ -170,7 +183,7 @@ local function decodeStatus(payload)
   }
 end
 
-local function runAgent(settings, send, receive, statePath, requestControl)
+local function runAgent(settings, send, receive, statePath, requestControl, service)
   local legacy = settings.controller
   local configured = settings.controllers
   if legacy ~= nil then
@@ -184,14 +197,11 @@ local function runAgent(settings, send, receive, statePath, requestControl)
         "Each agent.controllers entry needs a full component address and a label of up to 64 characters")
     end
   end
-  local pinnedCentral = settings.centralModem
-  if pinnedCentral == nil then pinnedCentral = settings.dashboardModem end
-  local central = pinnedCentral
-  if central == nil and filesystem.exists(statePath) then central = readPair(statePath) or "" end
-  assert(central == nil or isAddress(central), "Invalid central modem address in config or pairing state")
+  local central, pinned = pairedCentral(settings, statePath)
   assert(not requestControl or central, "Pair this computer in agent mode before running agent-control")
+  assert(not service or central == service.central, "Central pairing changed. Register agent-autostart again.")
   -- Require a local opt-in tied to an already known central modem.
-  local allowControl = requestControl or (settings.allowControl == true and pinnedCentral ~= nil)
+  local allowControl = requestControl or (settings.allowControl == true and pinned)
   local token
   local label = settings.name
   assert(label == nil or (isLabel(label) and #label <= 64), "Set agent.name to a label of up to 64 characters")
@@ -200,7 +210,8 @@ local function runAgent(settings, send, receive, statePath, requestControl)
     print("Open Add agent on central. Ctrl+C to exit.")
   else
     local mode = allowControl and "Machine control enabled" or "Monitoring only"
-    print("Factory agent paired to " .. central .. ". " .. mode .. ". Ctrl+C to exit.")
+    local stopHint = service and "rc factory-control stop to exit." or "Ctrl+C to exit."
+    print("Factory agent paired to " .. central .. ". " .. mode .. ". " .. stopHint)
   end
   local function sendResult(id, address, applied)
     if legacy then
@@ -489,7 +500,7 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
   if filesystem.exists(statePath) then
     for address in filesystem.list(statePath) do
       if isAddress(address) and not agents[address] then
-        addAgent(address, readPair(filesystem.concat(statePath, address)))
+        addAgent(address, readFile(filesystem.concat(statePath, address), "*l"))
       end
     end
   end
@@ -672,12 +683,67 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
   end
 end
 
+local function serviceEnabled()
+  local config = {}
+  assert(loadfile("/etc/rc.cfg", "t", config))()
+  for _, name in ipairs(config.enabled or {}) do
+    if name == "factory-control" then return true end
+  end
+  return false
+end
+
+local function enableAgentService(configPath, requireConfig, central)
+  -- OpenOS's lua launcher names the chunk with '=' followed by its filename.
+  local source = debug.getinfo(enableAgentService, "S").source:match("^[@=](.+)$")
+  local program = shell.resolve(assert(source, "Run agent-autostart from a script file"))
+  assert(filesystem.exists(program), "Cannot find the Factory Control script at " .. program)
+  local servicePath = "/etc/rc.d/factory-control.lua"
+  local serviceCode = string.format([=[
+local thread = require("thread")
+local program = %q
+local configPath = %q
+local session, worker
+
+function start()
+  if worker and worker:status() ~= "dead" then return end
+  session = {requireConfig = %s, central = %q}
+  worker = thread.create(assert(loadfile(program)), "agent-control", configPath, session)
+  assert(worker:status() ~= "dead", "Factory Control agent exited during startup")
+  assert(worker:detach())
+end
+
+function stop()
+  if worker and worker:status() ~= "dead" then
+    session.stopping = true
+    assert(worker:join(10))
+  end
+  session, worker = nil, nil
+end
+]=], program, configPath, tostring(requireConfig), central)
+
+  if filesystem.exists(servicePath) then
+    assert(readFile(servicePath, "*a") == serviceCode,
+      "Existing service uses a different setup. Stop and disable it before removing " .. servicePath)
+  else
+    writeNewFile(servicePath, serviceCode)
+  end
+  if not serviceEnabled() then
+    assert(loadfile("/bin/rc.lua"))("factory-control", "enable")
+    assert(serviceEnabled(), "Could not enable the Factory Control service")
+  end
+  print("Factory Control agent-control will start at boot. Run rc factory-control start to start it now.")
+end
+
 local role, first, second, third, extra = ...
 local requestControl = role == "agent-control"
-if requestControl then role = "agent" end
+local installService = role == "agent-autostart"
+-- The generated rc service passes a local session table for graceful shutdown.
+local service = requestControl and type(second) == "table" and second or nil
+if service then second = nil end
+if requestControl or installService then role = "agent" end
 if role == "dashboard" then role = "central" end
 if extra or (role ~= "agent" and role ~= "central") or (role == "agent" and second) then
-  print("Usage: lua factory-control.lua agent|agent-control [config.lua]")
+  print("Usage: lua factory-control.lua agent|agent-control|agent-autostart [config.lua]")
   print("       lua factory-control.lua -- central [X1,Z1 X2,Z2] [config.lua]")
   return
 end
@@ -697,7 +763,8 @@ local function main()
   end
   local path = shell.resolve(configPath or "config.lua")
   local config = {}
-  if configPath or filesystem.exists(path) then
+  local requireConfig = configPath ~= nil and (not service or service.requireConfig)
+  if requireConfig or filesystem.exists(path) then
     config = assert(loadfile(path))()
     assert(type(config) == "table", "Config must return a table")
   end
@@ -709,6 +776,12 @@ local function main()
   -- Keep the original state filename so existing central pairings are reused.
   local stateRole = role == "central" and "dashboard" or role
   local statePath = filesystem.concat(filesystem.path(path), "state", filesystem.name(path) .. "." .. stateRole)
+  if installService then
+    local central = assert(pairedCentral(settings, statePath),
+      "Pair this computer in agent mode before running agent-autostart")
+    enableAgentService(path, requireConfig, central)
+    return
+  end
   assert(isInteger(port) and port >= 1 and port <= 65535, "Set port to an integer from 1 to 65535")
   local modem
   if config.modem then
@@ -736,7 +809,15 @@ local function main()
   end
 
   local function receive(timeout)
+    if service then
+      if service.stopping then return "interrupted" end
+      timeout = math.min(timeout, 0.5)
+    end
     local signal, first, second, third, fourth, fifth, kind, data, extra, payload, count = event.pull(timeout)
+    if service then
+      if service.stopping then return "interrupted" end
+      if signal == "interrupted" then return end
+    end
     if signal == "modem_message" then
       if first == modem.address and third == port and fifth == protocol then
         return signal, second, kind, data, extra, payload, count
@@ -759,7 +840,7 @@ local function main()
   assert(modem.open(port), "Port is already open on this modem. Stop the other program or change port.")
   local ok, reason
   if role == "agent" then
-    ok, reason = pcall(runAgent, settings, send, receive, statePath, requestControl)
+    ok, reason = pcall(runAgent, settings, send, receive, statePath, requestControl, service)
   else
     ok, reason = pcall(runCentral, settings, send, receive, statePath, gpu, screen, hall)
   end
@@ -773,4 +854,7 @@ local function main()
 end
 
 local ok, reason = pcall(main)
-if not ok then io.stderr:write(tostring(reason) .. "\n") end
+if not ok then
+  if service then error(reason, 0) end
+  io.stderr:write(tostring(reason) .. "\n")
+end
