@@ -78,8 +78,13 @@ end
 
 local function draw(gpu, width, height, dx, dy, bank, reading, message, footer)
   local function row(y, content)
-    local line = unicode.wtrunc(content, width + 1)
-    gpu.set(dx + 1, dy + y, line .. string.rep(" ", width - unicode.wlen(line)))
+    local columns = unicode.wlen(content)
+    -- OpenComputers' wtrunc expects a string that exceeds the target width.
+    if columns > width then
+      content = unicode.wtrunc(content, width + 1)
+      columns = unicode.wlen(content)
+    end
+    gpu.set(dx + 1, dy + y, content .. string.rep(" ", width - columns))
   end
 
   local rows = { "LSC POWER MONITOR", [12] = footer or "Ctrl+C to exit" }
