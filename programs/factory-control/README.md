@@ -26,7 +26,7 @@ Replace `main` with a tested commit SHA for a repeatable install. If you also wa
 2. On the machine computer, run `lua factory-control.lua agent`. The agent selects its wireless modem and discovers compatible controllers on the local component network. It advertises on port `34173`.
 3. Touch the agent's name in the pairing panel. A number in brackets shows the controller count for a group. Each reporting controller gets its own square. Touch **Close pairing** when done.
 
-Pair each agent once. With automatic discovery, connecting another compatible controller to that agent adds it to central without another pairing. Use **Machines** to select any reported controller, including ones whose squares overlap or lie outside the hall bounds.
+Pair each agent once. With automatic discovery, connecting another compatible controller to that agent adds it to central without another pairing.
 
 Both computers save their pairings under `state/` beside their config. Start each program again from the same directory to reuse the pairings. For an upgrade in a new directory, copy `state/` and any local `config.lua` across. Central keeps the last position for agents that go offline during the session.
 
@@ -40,7 +40,7 @@ Pair the agent in `agent` mode first. On the agent, press **Ctrl+C** and start i
 lua factory-control.lua agent-control
 ```
 
-This enables per-machine controls for that run using the saved central modem address. If you paired using a custom config filename, pass the same filename after `agent-control`. Select a controller on central to use **Disable work** or **Enable work**. Restart an automatically paired agent in `agent` mode to return to monitoring.
+This enables per-machine controls for that run using the saved central modem address. If you paired using a custom config filename, pass the same filename after `agent-control`. On central, select a controller, touch **Disable work** or **Enable work**, then confirm. Restart an automatically paired agent in `agent` mode to return to monitoring.
 
 For a manual pairing, you can keep controls enabled in normal `agent` mode by setting `agent.centralModem` and `agent.allowControl = true` in the local config.
 
@@ -59,7 +59,7 @@ Use `rc factory-control stop` to stop the running service and `rc factory-contro
 
 ## Set the hall layout
 
-Give `central` two `X,Z` coordinates. The first maps to the upper left and the second maps to the lower right. Use world coordinates for the hall corners. Either axis can run in decreasing order if the screen should face that way.
+Give `central` two `X,Z` world coordinates for opposite corners of the hall. At the default rotation, the first maps to the upper left and the second to the lower right. Either axis can run in decreasing order.
 
 ```sh
 lua factory-control.lua -- central -120,35 -80,70
@@ -68,6 +68,27 @@ lua factory-control.lua -- central -120,35 -80,70
 The `--` keeps OpenOS from treating negative coordinates as options. Two plain integers describe a square. For example, `central 20 80` maps `(20,20)` to the upper left and `(80,80)` to the lower right. You can pass a config filename after the corners.
 
 Command-line corners override `central.hall` for that run. If you supply neither, central fits the map to the reported controllers. Controllers outside fixed bounds remain selectable under **Machines**.
+
+Touch **Settings** in the bottom-right corner, then **Rotate left** or **Rotate right** to turn the map in 90-degree steps. The map previews each turn immediately. Use **Reset** for the original orientation and **Done** to return to the hall map. Central saves the rotation in `state/config.lua.dashboard/hall-rotation` for the next boot.
+
+## Use the central display
+
+- **Hall map** shows controller positions. Each tile has a status symbol, machine number, and short label. A tile like `+02` opens a list of the controllers that share that screen cell.
+- **Issues** lists maintenance problems and offline controllers, with the problem count or time since the last report. **Machines** includes every reported controller, even outside the map.
+- Touch a tile or list row for the full name, coordinates, agent, EU/t, progress, maintenance count, and work permission. At 100 × 22 or larger the details open beside the active view. On smaller screens use **Back** to return from the full-width detail view.
+- Work controls require a separate confirmation tap. Central shows when the agent confirms, declines, or times out. Offline controllers and agents in monitoring mode have no work buttons.
+
+## Start central at boot
+
+On central, run the setup command from the same directory you use to start Factory Control. Use your downloaded filename and your hall corners.
+
+```sh
+lua factory-control.lua -- central-autostart -120,35 -80,70
+```
+
+Central opens in the foreground once OpenOS has a screen, and **Ctrl+C** returns to the shell. The setup remembers the script path, hall corners, and config path. Pass your config filename after the corners if you use one. Omit the corners to use your config bounds or automatic map fitting.
+
+Run the setup again to change the saved corners or script path. `lua factory-control.lua central-autostart off` disables startup while keeping your existing shell commands and pairings.
 
 ## Optional configuration
 
@@ -90,10 +111,10 @@ print(require("component").invoke("CONTROLLER_ADDRESS", "getCoordinates"))
 
 ## Run and verify
 
-1. Look for a blue square on the map while an enabled machine is idle, and a green square once it starts work. Red takes priority when the scanner reports maintenance problems. Gray indicates a disabled machine or one whose last report is at least 10 seconds old.
+1. Look for blue `S` while an enabled machine is on standby and green `R` once it starts work. Red `!` indicates maintenance and takes priority over other states for reporting controllers. Amber `D` indicates disabled work. Gray `?` means the last report is at least 10 seconds old.
 2. Select a square or a row under **Machines** to see its label, coordinates, work permission, progress, maintenance count, and usage in EU/t. Maintenance and usage are read from the English `Problems` and `Currently uses` scanner lines. Central shows unavailable fields as `unknown` or `--`.
-3. Disconnect one controller from the agent. Check that its square goes gray and the other machines keep updating. Reconnect it and check that it resumes reporting.
-4. Restart the paired agent in `agent-control` mode. Select one controller and touch **Disable work** or **Enable work**. Check that central confirms the setting and that only the selected controller's work permission changes.
+3. Disconnect one controller from the agent. Check that it goes gray, appears under **Issues**, and has no work controls. Reconnect it and check that it resumes reporting.
+4. Restart the paired agent in `agent-control` mode. Select one controller, touch **Disable work** or **Enable work**, and confirm. Check that central confirms the setting and that only the selected controller's work permission changes.
 
 Wireless pairing grants monitoring. Enable commands on a trusted network and use OpenOS `useradd` on central to limit touchscreen input to its operators. Keep live config and pairing state on the in-game computers.
 
