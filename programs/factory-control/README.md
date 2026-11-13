@@ -28,6 +28,8 @@ Replace `main` with a tested commit SHA for a repeatable install. If you also wa
 
 Pair each agent once. With automatic discovery, connecting another compatible controller to that agent adds it to central without another pairing.
 
+The agent console prints the number of reporting multiblocks, the number of connected OpenComputers components, and the remaining slots for components that each cost one slot. It refreshes the readout when the numbers change. Cards and other peripherals count toward the limit, and filesystems count as a quarter slot each before rounding down. The free-slot estimate uses the detected processor and GTNH defaults. If your server changes the limits or the processor is unrecognized, set `agent.componentLimit` to the actual limit in the agent's local config. [GTNH component counting](https://github.com/GTNewHorizons/OpenComputers/blob/1.12.68-GTNH/src/main/scala/li/cil/oc/server/machine/Machine.scala) · [GTNH 2.9.0 defaults](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg)
+
 Both computers save their pairings under `state/` beside their config. Start each program again from the same directory to reuse the pairings. For an upgrade in a new directory, copy `state/` and any local `config.lua` across. Central keeps the last position for agents that go offline during the session.
 
 To move an automatically paired agent to a new central computer, stop the agent and remove its `state/config.lua.agent` file before starting it again. To remove its entry from the old central computer, stop the program there and delete the file named after the agent's modem address inside `state/config.lua.dashboard/`. Central uses the original state directory to preserve existing pairings. If you use a custom config filename, the state paths use that filename in place of `config.lua`.
@@ -77,6 +79,16 @@ Touch **Settings** in the bottom-right corner, then **Rotate left** or **Rotate 
 - **Issues** lists maintenance problems and offline controllers, with the problem count or time since the last report. **Machines** includes every reported controller, even outside the map.
 - Touch a tile or list row for the full name, coordinates, agent, EU/t, progress, maintenance count, and work permission. At 100 × 22 or larger the details open beside the active view. On smaller screens use **Back** to return from the full-width detail view.
 - Work controls require a separate confirmation tap. Central shows when the agent confirms, declines, or times out. Offline controllers and agents in monitoring mode have no work buttons.
+- To clear a stale entry, open the offline controller from **Issues**, **Machines**, or the map. Tap **Remove offline**, then confirm. Its agent stays paired and the controller reappears when it reports again.
+
+### Automate issue handling
+
+Open **Settings** in the bottom-right corner. Both toggles default to **Off** and save their state for the next start.
+
+- **Disable on maintenance** disables work on any online controller reporting maintenance problems, including existing faults when the toggle is turned on. Its agent must have remote control enabled. After repair, select the controller and enable work manually.
+- **Emit redstone on issue** holds a redstone signal at strength 15 while **Issues** has at least one maintenance or offline entry. It returns to 0 when the last issue clears, when you turn the toggle off, or when central exits normally. Removing an offline entry clears that issue until the controller reports again.
+
+Connect a dedicated OpenComputers Redstone I/O block to central's component network, or install a Redstone Card. With one redstone component, central uses it automatically and drives all six sides by default. With multiple components, set `central.redstone` to the full address of the intended device. Set `central.redstoneSide` to a side number from 0 to 5 to use just that side. Settings shows the output level or any connection error. [OpenComputers redstone API](https://ocdoc.cil.li/component:redstone)
 
 ## Start central at boot
 
@@ -115,6 +127,7 @@ print(require("component").invoke("CONTROLLER_ADDRESS", "getCoordinates"))
 2. Select a square or a row under **Machines** to see its label, coordinates, work permission, progress, maintenance count, and usage in EU/t. Maintenance and usage are read from the English `Problems` and `Currently uses` scanner lines. Central shows unavailable fields as `unknown` or `--`.
 3. Disconnect one controller from the agent. Check that it goes gray, appears under **Issues**, and has no work controls. Reconnect it and check that it resumes reporting.
 4. Restart the paired agent in `agent-control` mode. Select one controller, touch **Disable work** or **Enable work**, and confirm. Check that central confirms the setting and that only the selected controller's work permission changes.
+5. With a control-enabled agent, turn on **Disable on maintenance** and check that a reporting controller with a maintenance fault stops accepting work. With a Redstone I/O connected, turn on **Emit redstone on issue** and verify that the output stays high while an issue is listed and goes low when the list clears.
 
 Wireless pairing grants monitoring. Enable commands on a trusted network and use OpenOS `useradd` on central to limit touchscreen input to its operators. Keep live config and pairing state on the in-game computers.
 

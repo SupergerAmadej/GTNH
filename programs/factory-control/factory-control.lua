@@ -183,6 +183,37 @@ local function decodeStatus(payload)
   }
 end
 
+local function agentComponentLimit(configuredLimit)
+  if configuredLimit ~= nil then
+    assert(isInteger(configuredLimit) and configuredLimit > 0, "Set agent.componentLimit to a positive integer")
+    return configuredLimit
+  end
+
+  -- OpenComputers reports the processor model. The slot limits come from the GTNH pack defaults.
+  local ok, devices = pcall(computer.getDeviceInfo)
+  if not ok or type(devices) ~= "table" then return end
+  local defaults = {8, 12, 16, 1024}
+  local cpuTier, multipleCPUs
+  for address, info in pairs(devices) do
+    if type(info.product) == "string" then
+      if info.description == "APU" then
+        local slot = component.slot(address)
+        if type(slot) == "number" and slot >= 0 then
+          local tier = tonumber(info.product:match("^FlexiArch ([123]) Processor %(Builtin Graphics%)$"))
+          return tier and defaults[tier + 1]
+        end
+      elseif info.description == "CPU" then
+        local tier = tonumber(info.product:match("^FlexiArch ([123]) Processor$"))
+        if tier then
+          if cpuTier then multipleCPUs = true end
+          cpuTier = tier
+        end
+      end
+    end
+  end
+  if not multipleCPUs then return defaults[cpuTier] end
+end
+
 local function runAgent(settings, send, receive, statePath, requestControl, service)
   local legacy = settings.controller
   local configured = settings.controllers
@@ -202,6 +233,8 @@ local function runAgent(settings, send, receive, statePath, requestControl, serv
   assert(not service or central == service.central, "Central pairing changed. Register agent-autostart again.")
   -- Require a local opt-in tied to an already known central modem.
   local allowControl = requestControl or (settings.allowControl == true and pinned)
+  local componentLimit = agentComponentLimit(settings.componentLimit)
+  local ownAddress = computer.address()
   local token
   local label = settings.name
   assert(label == nil or (isLabel(label) and #label <= 64), "Set agent.name to a label of up to 64 characters")
@@ -223,7 +256,7 @@ local function runAgent(settings, send, receive, statePath, requestControl, serv
 
   local controllers = {}
   local nextSample = 0
-  local pending, lastError
+  local pending, lastError, lastCapacity
   while true do
     local now = computer.uptime()
     if pending and now >= pending.checkAt then
@@ -263,6 +296,20 @@ local function runAgent(settings, send, receive, statePath, requestControl, serv
         end
       end
       controllers = found
+      local devices, filesystems = 0, 0
+      for address, kind in component.list() do
+        if address ~= ownAddress then
+          devices = devices + 1
+          if kind == "filesystem" then filesystems = filesystems + 1 end
+        end
+      end
+      local used = math.floor(devices - 0.75 * filesystems)
+      local free = componentLimit and tostring(math.max(0, componentLimit - used)) or "unknown"
+      local capacity = string.format("Multiblocks reporting: %d\nDevices connected: %d | Free slots: %s", count, devices, free)
+      if capacity ~= lastCapacity then
+        print(capacity)
+        lastCapacity = capacity
+      end
       if not central and preview then
         local name = label or (count == 1 and controllers[previewAddress]) or ("Agent " .. previewAddress:sub(1, 8))
         if not send(nil, "hello", token, name, preview, count) then
@@ -319,10 +366,14 @@ local operating = {label = "Running", short = "Run", mark = "R", color = 0x00AA0
 local standby = {label = "Standby", short = "Standby", mark = "S", color = 0x0000AA, rank = 5}
 local states = {operating, standby, fault, offline, disabled}
 
+local function hasMaintenance(machine)
+  return (machine.status.problems or 0) > 0
+end
+
 local function machineState(machine)
   local status = machine.status
   if not machine.online then return offline end
-  if status.problems and status.problems > 0 then return fault end
+  if hasMaintenance(machine) then return fault end
   if not status.enabled then return disabled end
   if status.active then return operating end
   return standby
@@ -526,7 +577,8 @@ local function drawPairing(gpu, panel, view, pairing, atLimit)
   drawPager(gpu, panel, view, page, pages)
 end
 
-local function drawDetails(gpu, panel, view, selected, confirm, pending, now)
+local function drawDetails(gpu, panel, view, ui, pending, now)
+  local selected, confirm = ui.selected, ui.confirm
   if not selected then
     panelText(gpu, panel, 0, "MACHINE DETAILS")
     panelText(gpu, panel, 2, "Touch a machine to inspect it.", colors.muted)
@@ -564,14 +616,23 @@ local function drawDetails(gpu, panel, view, selected, confirm, pending, now)
   panelText(gpu, panel, 7, "Maintenance: " .. (status.problems and (status.problems .. " issues") or "unknown"))
 
   local commandRow = y + 8
-  if pending and pending.machine == selected then
-    panelText(gpu, panel, 8, "Awaiting agent confirmation...")
-  elseif state == offline then
+  if state == offline then
     panelText(gpu, panel, 8, "Offline - controls unavailable", colors.muted)
+    if confirm then
+      view.cancel = button(gpu, x, commandRow + 1, " Cancel ")
+      view.remove = button(gpu, x + 17, commandRow + 1, " Confirm removal ", disabled.color, disabled.ink)
+    else
+      view.remove = button(gpu, x, commandRow + 1, " Remove offline ")
+    end
+    view.remove.machine, view.remove.confirm = selected, confirm
+  elseif pending and pending.machine == selected then
+    panelText(gpu, panel, 8, "Awaiting agent confirmation...")
   elseif not status.control then
     panelText(gpu, panel, 8, "Agent is monitoring only", colors.muted)
   elseif pending then
     panelText(gpu, panel, 8, "Another command is pending", colors.muted)
+  elseif ui.disableOnMaintenance and not status.enabled and hasMaintenance(selected) then
+    panelText(gpu, panel, 8, "Repair before enabling work", colors.muted)
   else
     local label = status.enabled and " Disable work " or " Enable work "
     if confirm then label = status.enabled and " Confirm disable " or " Confirm enable " end
@@ -588,10 +649,14 @@ local function drawRotationControls(gpu, view, ui)
   view.rotateRight = button(gpu, 16, 3, " Rotate right ", nil, nil, 2)
   view.resetRotation = button(gpu, 31, 3, " Reset ", nil, nil, 2)
   paint(gpu, 40, 3, string.format("Rotation: %d deg", ui.rotation), colors.background)
-  if ui.rotationMessage then paint(gpu, 2, 5, ui.rotationMessage, colors.background, colors.muted) end
 end
 
-local function drawCentral(gpu, hall, machines, agentCount, ui, pending, pairing, now)
+local function toggleButton(gpu, x, y, label, enabled)
+  local text = string.format(" %s: %s ", label, enabled and "On" or "Off")
+  return button(gpu, x, y, text, enabled and colors.text or nil, enabled and colors.ink or nil, 2)
+end
+
+local function drawCentral(gpu, hall, machines, agentCount, ui, pending, pairing, now, alarm)
   local width, height = gpu.getViewport()
   local view = {markers = {}, offers = {}, rows = {}}
   gpu.setBackground(colors.background)
@@ -630,6 +695,9 @@ local function drawCentral(gpu, hall, machines, agentCount, ui, pending, pairing
   local showDetail = ui.selected and ui.detail
   if settingsOpen then
     drawRotationControls(gpu, view, ui)
+    view.disableOnMaintenance = toggleButton(gpu, 2, 5, "Disable on maintenance", ui.disableOnMaintenance)
+    view.emitRedstone = toggleButton(gpu, 32, 5, "Emit redstone on issue", ui.emitRedstone)
+    if ui.settingsMessage then paint(gpu, 2, 7, ui.settingsMessage, colors.background, colors.muted) end
   else
     local issuesLabel = string.format("%-13s", " Issues (" .. #issues .. ") ")
     local buttons = {{"map", " Hall map "}, {"issues", issuesLabel}, {"machines", " Machines "},
@@ -646,6 +714,7 @@ local function drawCentral(gpu, hall, machines, agentCount, ui, pending, pairing
   end
 
   local main = {x = 2, y = 6, w = width - 2, h = height - 7}
+  if settingsOpen then main.y, main.h = main.y + 2, main.h - 2 end
   local side
   if wide and not pairing then
     local sideWidth = math.max(40, math.floor(width * 0.35))
@@ -677,23 +746,63 @@ local function drawCentral(gpu, hall, machines, agentCount, ui, pending, pairing
     if ui.group then
       drawMachineList(gpu, side or main, view, "MACHINES AT THIS TILE", ui.group.machines, ui.selected, ui.page, now)
     elseif side or showDetail then
-      drawDetails(gpu, side or main, view, ui.selected, ui.confirm, pending, now)
+      drawDetails(gpu, side or main, view, ui, pending, now)
     end
   end
 
   local footer = string.format("%d on map  |  %d outside bounds", inBounds, #machines - inBounds)
+  if settingsOpen and alarm.message then footer = alarm.message end
   paint(gpu, 2, height - 1, footer, colors.background, colors.muted)
   paint(gpu, 2, height, "Ctrl+C to exit", colors.background, colors.muted)
   view.settings = button(gpu, width - 10, height, settingsOpen and "    Done   " or " Settings  ")
   return view
 end
 
-local function canSetWork(machine, enabled, now)
+local function canSetWork(machine, enabled, now, disableOnMaintenance)
   return machine.online and now - machine.lastSeen < offlineAfter
     and machine.status.control and machine.status.enabled ~= enabled
+    and not (enabled and disableOnMaintenance and hasMaintenance(machine))
 end
 
-local function runCentral(settings, send, receive, statePath, gpu, screen, bounds)
+local function writeAlarm(alarm, address, level)
+  if alarm.side then return component.invoke(address, "setOutput", alarm.side, level) end
+  return component.invoke(address, "setOutput", {[0] = level, level, level, level, level, level})
+end
+
+local function updateAlarm(alarm, enabled, hasIssue, now)
+  if not enabled and not alarm.output then
+    alarm.message = nil
+    return
+  end
+  local level = enabled and hasIssue and 15 or 0
+  if alarm.target == level and now < alarm.nextCheck then return end
+  alarm.target, alarm.nextCheck = level, now + sampleInterval
+  local address = alarm.output or alarm.address
+  if not address then
+    local devices = component.list("redstone", true)
+    address = devices()
+    if not address then
+      alarm.message = "Redstone: connect a Redstone I/O or card"
+      return
+    elseif devices() then
+      alarm.message = "Redstone: set central.redstone to select a device"
+      return
+    end
+  end
+  alarm.output = address
+  local ok, previous = pcall(writeAlarm, alarm, address, level)
+  if not ok or previous == nil then
+    alarm.message = "Redstone output unavailable. Retrying..."
+    return
+  end
+  if enabled then
+    alarm.message = "Redstone output: " .. level
+  else
+    alarm.output, alarm.message = nil, nil
+  end
+end
+
+local function runCentral(settings, send, receive, statePath, gpu, screen, bounds, alarm)
   local hall, peers = bounds or settings.hall, settings.machines or {}
   assert(hall == nil or (type(hall) == "table" and isInteger(hall.originX) and isInteger(hall.originZ)
     and isInteger(hall.spanX) and hall.spanX ~= 0 and isInteger(hall.spanZ) and hall.spanZ ~= 0),
@@ -717,18 +826,46 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
   end
 
   local rotationPath = filesystem.concat(statePath, "hall-rotation")
-  local ui = {tab = "map", page = 1, rotation = 0}
+  local automationPath = filesystem.concat(statePath, "automation")
+  local ui = {tab = "map", page = 1, rotation = 0, disableOnMaintenance = false, emitRedstone = false}
   if filesystem.exists(rotationPath) then
     local ok, value = pcall(readFile, rotationPath, "*l")
     local rotation = ok and tonumber(value)
     if rotation and hallAxes[rotation] then
       ui.rotation = rotation
     else
-      ui.rotationMessage = "Saved rotation unavailable. Using 0 deg."
+      ui.settingsMessage = "Saved rotation unavailable. Using 0 deg."
+    end
+  end
+  if filesystem.exists(automationPath) then
+    local ok, value = pcall(readFile, automationPath, "*l")
+    local maintenance, redstone
+    if ok and value then maintenance, redstone = value:match("^([01]) ([01])$") end
+    if maintenance then
+      ui.disableOnMaintenance, ui.emitRedstone = maintenance == "1", redstone == "1"
+    else
+      ui.settingsMessage = "Saved automation settings unavailable. Using Off."
     end
   end
   local pending, view, pairing
   local dirty, counter, redrawAt, ageAt = true, 0, 0, 0
+  local function requestWork(machine, enabled, now)
+    counter = counter + 1
+    local id = string.format("%.3f-%d", now, counter)
+    local sent
+    if machine.controller then
+      sent = send(machine.agent.address, "set-machine", id, machine.controller, enabled)
+    else
+      sent = send(machine.agent.address, "set-work", id, enabled)
+    end
+    if sent then
+      pending = {machine = machine, id = id, enabled = enabled, deadline = now + commandTimeout}
+      machine.message = nil
+    else
+      machine.message = "Could not send command"
+    end
+    dirty = true
+  end
   local function updateMachine(agent, controller, name, payload)
     local key = controller or ""
     local machine = agent.machines[key]
@@ -761,6 +898,7 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
     end
     machine.name, machine.status, machine.online, machine.lastSeen = name, status, true, computer.uptime()
     machine.payload = payload
+    if not hasMaintenance(machine) or not status.enabled then machine.autoDisableAt = nil end
     dirty = true
   end
 
@@ -776,26 +914,43 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
         end
       end
     end
-    local hasOffline = false
+    local hasOffline, hasIssue, autoDisable = false, false, nil
     for _, machine in ipairs(machines) do
       if machine.online and now - machine.lastSeen >= offlineAfter then
         machine.online = false
         dirty = true
       end
       if not machine.online then hasOffline = true end
+      if not machine.online or hasMaintenance(machine) then hasIssue = true end
+      if ui.disableOnMaintenance and hasMaintenance(machine) and canSetWork(machine, false, now) then
+        local retryAt = machine.autoDisableAt or 0
+        if now >= retryAt and (not autoDisable or retryAt < (autoDisable.autoDisableAt or 0)) then
+          autoDisable = machine
+        end
+      end
     end
-    if ui.confirm and (now >= ui.confirm.deadline or not canSetWork(ui.confirm.machine, ui.confirm.enabled, now)) then
-      ui.confirm, dirty = nil, true
+    if ui.confirm then
+      local confirm = ui.confirm
+      local valid = confirm.enabled == nil and not confirm.machine.online
+        or confirm.enabled ~= nil and canSetWork(confirm.machine, confirm.enabled, now, ui.disableOnMaintenance)
+      if not valid or now >= confirm.deadline then ui.confirm, dirty = nil, true end
     end
     if pending and now >= pending.deadline then
       pending.machine.message = "Command timed out"
       pending, dirty = nil, true
     end
+    if autoDisable and not pending and not ui.confirm then
+      autoDisable.autoDisableAt = now + 15
+      requestWork(autoDisable, false, now)
+    end
+    local alarmMessage = alarm.message
+    updateAlarm(alarm, ui.emitRedstone, hasIssue, now)
+    if alarmMessage ~= alarm.message and ui.tab == "settings" then dirty = true end
     local showingAges = hasOffline and not pairing and ui.tab ~= "settings"
       and (ui.tab ~= "map" or ui.group or (ui.selected and not ui.selected.online))
     if showingAges and now >= ageAt then dirty = true end
     if dirty and now >= redrawAt then
-      view = drawCentral(gpu, hall or fitHall(machines), machines, agentCount, ui, pending, pairing, now)
+      view = drawCentral(gpu, hall or fitHall(machines), machines, agentCount, ui, pending, pairing, now, alarm)
       dirty = false
       redrawAt = computer.uptime() + redrawInterval
       ageAt = now + 5
@@ -822,8 +977,19 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
         if rotation then
           local saved = pcall(writeFile, rotationPath, rotation .. "\n")
           ui.rotation = rotation
-          ui.rotationMessage = not saved and "Rotation applied. Could not save to disk." or nil
+          ui.settingsMessage = not saved and "Rotation applied. Could not save to disk." or nil
           dirty = true
+        else
+          local setting = contains(view.disableOnMaintenance, x, y) and "disableOnMaintenance"
+            or contains(view.emitRedstone, x, y) and "emitRedstone"
+          if setting then
+            ui[setting] = not ui[setting]
+            if setting == "emitRedstone" then alarm.target = nil end
+            local value = string.format("%d %d\n", ui.disableOnMaintenance and 1 or 0, ui.emitRedstone and 1 or 0)
+            local saved = pcall(writeFile, automationPath, value)
+            ui.settingsMessage = not saved and "Setting applied. Could not save to disk." or nil
+            dirty = true
+          end
         end
       elseif tab then
         pairing = nil
@@ -868,29 +1034,32 @@ local function runCentral(settings, send, receive, statePath, gpu, screen, bound
         end
       elseif contains(view.cancel, x, y) then
         ui.confirm, dirty = nil, true
+      elseif contains(view.remove, x, y) then
+        local machine = view.remove.machine
+        local confirm = ui.confirm
+        if machine == ui.selected and not machine.online and confirm == view.remove.confirm then
+          if not confirm then
+            ui.confirm = {machine = machine, deadline = computer.uptime() + 8}
+          elseif computer.uptime() < confirm.deadline then
+            machine.agent.machines[machine.controller or ""] = nil
+            table.remove(machines, machine.number)
+            for index = machine.number, #machines do machines[index].number = index end
+            if pending and pending.machine == machine then pending = nil end
+            ui.selected, ui.detail, ui.group, ui.confirm = nil, nil, nil, nil
+          end
+          dirty = true
+        end
       elseif contains(view.work, x, y) then
         now = computer.uptime()
         local machine, enabled = view.work.machine, view.work.enabled
         if machine == ui.selected and not pending and ui.confirm == view.work.confirm
-            and canSetWork(machine, enabled, now) then
+            and canSetWork(machine, enabled, now, ui.disableOnMaintenance) then
           if not ui.confirm then
             ui.confirm = {machine = machine, enabled = enabled, deadline = now + 8}
             machine.message = nil
           elseif now < ui.confirm.deadline then
             ui.confirm = nil
-            counter = counter + 1
-            local id = string.format("%.3f-%d", now, counter)
-            local sent
-            if machine.controller then
-              sent = send(machine.agent.address, "set-machine", id, machine.controller, enabled)
-            else
-              sent = send(machine.agent.address, "set-work", id, enabled)
-            end
-            if sent then
-              pending = {machine = machine, id = id, enabled = enabled, deadline = now + commandTimeout}
-            else
-              machine.message = "Could not send command"
-            end
+            requestWork(machine, enabled, now)
           end
         end
         dirty = true
@@ -1166,7 +1335,7 @@ local function main()
     return signal, first, second, third, fourth
   end
 
-  local gpu, screen, foreground, fgPalette, background, bgPalette
+  local gpu, screen, foreground, fgPalette, background, bgPalette, alarm
   if role == "central" then
     local term = require("term")
     assert(term.isAvailable(), "Connect a graphics card and touchscreen to central")
@@ -1174,6 +1343,10 @@ local function main()
     screen = gpu.getScreen()
     foreground, fgPalette = gpu.getForeground()
     background, bgPalette = gpu.getBackground()
+    local side = settings.redstoneSide
+    assert(settings.redstone == nil or isAddress(settings.redstone), "Set central.redstone to a full component address")
+    assert(side == nil or (isInteger(side) and side >= 0 and side <= 5), "Set central.redstoneSide to a side from 0 to 5")
+    alarm = {address = settings.redstone, side = side}
   end
 
   assert(modem.open(port), "Port is already open on this modem. Stop the other program or change port.")
@@ -1181,9 +1354,10 @@ local function main()
   if role == "agent" then
     ok, reason = pcall(runAgent, settings, send, receive, statePath, requestControl, service)
   else
-    ok, reason = pcall(runCentral, settings, send, receive, statePath, gpu, screen, hall)
+    ok, reason = pcall(runCentral, settings, send, receive, statePath, gpu, screen, hall, alarm)
   end
   pcall(modem.close, port)
+  if alarm and alarm.output then pcall(writeAlarm, alarm, alarm.output, 0) end
   if gpu then
     pcall(gpu.setForeground, foreground, fgPalette)
     pcall(gpu.setBackground, background, bgPalette)

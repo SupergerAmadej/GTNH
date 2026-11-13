@@ -4,6 +4,7 @@ return {
 
   -- All settings are optional for the default wireless pairing flow.
   agent = {
+    -- componentLimit = 12, -- Override the detected processor's GTNH default if the server changes it.
     -- Omit controllers to discover every compatible controller connected to this agent.
     -- controllers = {
     --   ["BLAST_FURNACE_COMPONENT_ADDRESS"] = "Electric Blast Furnace",
@@ -16,6 +17,9 @@ return {
   },
 
   central = {
+    -- With one redstone component, central selects it automatically.
+    -- redstone = "REDSTONE_COMPONENT_ADDRESS", -- Select an output device if several are connected.
+    -- redstoneSide = 1, -- 0 through 5. Omit to use all six sides of the selected device.
     -- Default hall bounds when central starts without corner arguments.
     -- hall = {originX = 0, originZ = 0, spanX = 32, spanZ = 24},
     -- machines = { ["AGENT_WIRELESS_MODEM_ADDRESS"] = "Factory Hall West" }, -- Manual agent pairing.
