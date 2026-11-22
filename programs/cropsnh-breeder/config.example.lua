@@ -6,6 +6,9 @@ return {
   firstPlot = 4,
   plotSpacing = 4,
 
+  -- Optional. Put a reject chest beside the dock at robot height.
+  -- rejectChest = "left", -- Also accepts "right" or "back".
+
   -- Plots are 4, 8, 12, ... blocks ahead of the dock with the settings above.
   -- Directions are relative to the way the robot faces at the dock.
   -- Parent names are CropsNH crop IDs. The optional label is also accepted on the command line.

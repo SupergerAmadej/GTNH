@@ -144,6 +144,12 @@ return {
 
 Save this as `config.lua` and run `lua cropsnh-breeder.lua field Wheat 31/31/31 16` from the dock. The target of 16 seeds applies to the whole field. CropsNH also considers plants on adjacent centers for breeding. Use wider spacing when separate crosses need distinct parent sets. [CropsNH breeding logic](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/tileentity/TileEntityCropSticks.java#L927-L1023)
 
+### Sort out inferior seeds
+
+Place a chest one block to the left, right, or back of the dock at robot height. Add `rejectChest = "left",` to `config.lua`, using the direction relative to the robot when it faces the plots. The robot sends Wheat seeds from Wheat stat plots to that chest if they fall short of the target and can't improve any configured Wheat parent. The same rule applies to other crops in their stat plots.
+
+Qualifying seeds still count toward the goal and go to the upper chest. The lower chest still receives saved improvements and intermediate seeds. Keep room in the reject chest, or pipe its contents to a trash can for automatic disposal.
+
 ### Restart a field run
 
 Press **Ctrl+C** to stop. The robot tries to return to the dock. If it stops elsewhere, return it by hand and face it down the row before restarting. The program records planted parents in `state/` beside the config. You can add plots anywhere the spacing allows. Keep each already used plot at its original distance from the dock with the same crop and parents.

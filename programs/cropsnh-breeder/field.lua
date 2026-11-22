@@ -34,6 +34,12 @@ end
 local firstPlot = plotDistance("firstPlot")
 local plotSpacing = plotDistance("plotSpacing")
 
+local rejectHeading
+if config.rejectChest ~= nil then
+  local headings = {left = 3, right = 1, back = 2}
+  rejectHeading = assert(headings[config.rejectChest], 'rejectChest must be "left", "right", or "back".')
+end
+
 -- X is forward from the dock. Z is right as seen from the dock.
 local offsets = {{"left", 0, -1}, {"right", 0, 1}, {"front", 1, 0}, {"back", -1, 0}}
 local breeders, statPlots, aliases, layout = {}, {}, {}, {}
@@ -231,6 +237,15 @@ local function better(candidate, previous)
   return candidate.growth + candidate.gain > previous.growth + previous.gain
 end
 
+local function canImproveParent(seed)
+  local shortfall = deficit(seed)
+  for _, plot in ipairs(statPlots[seed.crop]) do
+    local parent = state.parents[plot.parents[1].key]
+    if not parent or shortfall < deficit(parent) then return true end
+  end
+  return false
+end
+
 local bank
 local function stock()
   if bank then return bank end
@@ -269,12 +284,21 @@ local function drain(plot, parent, recover)
         savedImprovement = true
         bank = nil
       end
-      if robot.count(slot) > 0 then hw.sendToChest(slot, outputSide) end
+      if robot.count(slot) > 0 then
+        if rejectHeading and seed and plot and plot.stats and seed.crop == plot.crop
+            and not canImproveParent(seed) then
+          face(rejectHeading)
+          hw.sendToChest(slot, sides.front)
+          face(0)
+        else
+          hw.sendToChest(slot, outputSide)
+        end
+      end
     end
   end
 end
 
-local function setParent(parent, candidate)
+local function setParent(plot, parent, candidate)
   local slot = hw.firstLootSlot
   robot.select(slot)
   inventory.suckFromSlot(seedSide, candidate.slot, 1)
@@ -301,7 +325,7 @@ local function setParent(parent, candidate)
     save()
   end)
   print(("Planted %s %d/%d/%d at %s"):format(seed.label, seed.growth, seed.gain, seed.resistance, parent.key))
-  drain()
+  drain(rejectHeading and plot.stats and plot, seed)
 end
 
 local function visit(plot)
@@ -309,7 +333,7 @@ local function visit(plot)
     local current = state.parents[parent.key]
     local candidate = stock()[parent.crop]
     if candidate and (not current or (plot.stats and deficit(candidate) < deficit(current))) then
-      setParent(parent, candidate)
+      setParent(plot, parent, candidate)
     end
   end
   for _, parent in ipairs(plot.parents) do
@@ -391,6 +415,13 @@ local function worklist()
 end
 
 local function run()
+  if rejectHeading then
+    -- The Inventory Controller only accesses the front, top and bottom.
+    face(rejectHeading)
+    assert((inventory.getInventorySize(sides.front) or 0) > 0,
+      "Place a reject chest " .. config.rejectChest .. " of the dock at robot height.")
+    face(0)
+  end
   drain(nil, nil, true)
   hw.checkSpade()
   if state.pending then
