@@ -1,112 +1,153 @@
 # CropsNH breeder
 
-An OpenComputers robot places double crop sticks, analyzes and harvests offspring, and puts seeds and produce in a chest. Run it over one plot with parents you plant by hand, or set up a row of plots and let the robot plant parents, run intermediate crosses, and select for a stat target.
+Use an OpenComputers robot to collect CropsNH seeds in GTNH 2.9.0. **Field mode** plants parents, runs intermediate crosses, and breeds toward a stat target. **Single-plot mode** collects seeds from one cross you set up by hand.
 
-**Target version** is GTNH 2.9.0 with CropsNH 2.0.140. In-game validation is pending.
+Targets CropsNH 2.0.140. The `1/1/1` to `31/31/31` Wheat run passed in simulation. In-game validation is pending.
 
-## One plot
+## Robot hardware and tools
 
-1. Build a robot with OpenOS, an Inventory Upgrade, an Inventory Controller Upgrade, a Geolyzer, and a Tier 1 or better Data Card. Add an Internet Card for `wget`. Use a chassis with enough component slots for these upgrades and your OpenOS hardware.
-2. Use NEI's **Crop Breeding** or **Crop Mutation Pools** tab to choose the parents and the center plot's soil and sub-soil. Plant the parents on the four sides of the center as required by the recipe. Leave the center soil bare. Feed the plot with a Crop Manager if needed. Leave the manager's harvesting disabled.
-3. Place the robot directly over the center, one block above where the crop sticks go. Place a chest against the robot's front and a powered OpenComputers Charger against another side of the robot. Turn on the Charger with redstone. You can attach the robot to the underside of the Charger to leave the center bare.
-4. Equip a **Reinforced Spade** in the tool slot. Put 16 CropsNH crop sticks in the first inventory slot and a **Plant Lens** in the second. The other slots hold drops until the robot can put them in the chest.
+| Part | Where it goes |
+| --- | --- |
+| Tier 2 Computer Case, Tier 1 APU, Tier 2 Memory, Tier 1 Screen, Keyboard, and Lua BIOS EEPROM | Assemble the robot in an OpenComputers Electronics Assembler. |
+| Managed HDD with OpenOS | Install OpenOS using a Disk Drive and an OpenOS floppy, or put a preloaded HDD in the robot during assembly. A Tier 1 HDD is enough for the program. |
+| Inventory Upgrade and Inventory Controller Upgrade | Install both in the robot. |
+| Geolyzer | Put the **OpenComputers Geolyzer block** into a robot upgrade slot in the Electronics Assembler. |
+| Tier 1 or better Data Card | Install in the robot. The script uses it to read crop IDs and stats from harvested seeds. |
+| Internet Card | Install in whichever computer runs `wget`. This can be the computer preparing the robot's HDD. |
 
-From above, the field looks like this. Use only the parent positions needed for your cross.
+[Robot assembly and preloaded HDDs](https://github.com/GTNewHorizons/OpenComputers/blob/1.12.68-GTNH/src/main/resources/assets/opencomputers/doc/en_US/block/robot.md) · [Geolyzer upgrade](https://github.com/GTNewHorizons/OpenComputers/blob/1.12.68-GTNH/src/main/resources/assets/opencomputers/doc/en_US/block/geolyzer.md)
+
+| Robot slot | Item |
+| --- | --- |
+| Tool slot | **Reinforced Spade** |
+| Inventory slot 1 | **CropsNH crop sticks**. Start with a stack for field mode or 16 for single-plot mode. |
+| Inventory slot 2 | **Plant Lens** |
+| Inventory slots 3 onward | Leave empty for seeds and drops. |
+
+## Test field mode with Wheat
+
+This test starts with **one `1/1/1` CropsNH Wheat seed bag**. The robot plants it and replaces the parent with better offspring until it collects a `31/31/31` seed.
+
+### 1. Build the dock and plot
+
+- Put the **seed chest directly below** the robot and the **output chest directly above** it. Place the powered OpenComputers Charger against a horizontal side and turn it on with a lever.
+- Face the robot down the row. Prepare the **center four blocks straight ahead of the dock** and the **parent one block left of the center**, relative to where the robot is facing.
+- Put lit, hydrated farmland **two blocks below the robot's flight level** at both tiles. Leave the block immediately above each soil block empty. That's where the robot places the crop sticks. Keep the flight path over the row and parent clear.
+- Give a Crop Manager water, fertilizer, and Weed-EX. Set it to tend both tiles, enable fertilizing, and turn harvesting off. Keep the parent at **101+ stored fertilizer** so spreading can improve its stats. Put the Wheat seed bag in the lower chest. [CropsNH spreading rules](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/handler/ConfigurationHandler.java#L158-L189)
 
 ```text
-       Parent
-Parent Center Parent
-       Parent
+Forward from dock   0       1       2       3       4
+One block left                                     [P]
+Aisle           [Dock >]    .       .       .      [C]
+
+[P] Parent tile   [C] Center tile
 ```
 
-### Install and run
+### 2. Choose the HDD to install on
 
-Run these commands in the robot's OpenOS terminal.
+**Installing on the robot.** Boot OpenOS on the robot and start in its home directory.
+
+```sh
+cd /home
+```
+
+**Preloading the HDD on another computer.** Run `mount` and find the robot HDD by its label and the address in the first column. The prep computer's boot drive appears at `/` and can also appear under `/mnt` with the same address.
+
+If the robot HDD is blank, insert an OpenOS floppy. Substitute the floppy's address and the robot HDD's address from `mount` before running the installer. [OpenOS installer options](https://github.com/GTNewHorizons/OpenComputers/blob/1.12.68-GTNH/src/main/resources/assets/opencomputers/loot/openos/lib/core/install_basics.lua#L7-L20)
+
+```sh
+install --from=FLOPPY_ADDRESS --to=ROBOT_HDD_ADDRESS --nosetboot --noreboot
+```
+
+Replace `/mnt/abc` with the robot HDD's actual mount path. Confirm that `pwd` shows its `home` directory before downloading.
+
+```sh
+cd /mnt/abc/home
+pwd
+```
+
+### 3. Download the program and write the Wheat config
+
+Run this block from the destination HDD's `home` directory. Use a fresh `cropsnh-wheat` directory. The installer downloads all three program files from `main`.
+
+```sh
+mkdir cropsnh-wheat
+cd cropsnh-wheat
+wget https://raw.githubusercontent.com/SupergerAmadej/GTNH/main/programs/cropsnh-breeder/install.lua
+lua install.lua
+echo 'return {retrySeconds=2400,plots={{crop="wheat",stats=true}}}' > config.lua
+```
+
+For a repeatable install, use the same commit SHA in place of `main` in the installer URL and in `lua install.lua SHA`.
+
+### 4. Run the test on the robot
+
+If you preloaded the HDD, shut down the prep computer and move the HDD to the robot. Boot OpenOS with the robot at the dock facing the plot.
+
+```sh
+cd /home/cropsnh-wheat
+lua cropsnh-breeder.lua field Wheat 31/31/31 1
+```
+
+The run stops after depositing **at least one `31/31/31` Wheat seed** in the upper chest. Early plants can take several harvests to drop a seed. The `2400`-second retry gives low-growth Wheat time to mature. The upper chest also receives produce and surplus seeds, so leave space for long runs.
+
+To multiply maxed seeds, use the same plot with a `31/31/31` starter or a maxed plant from a completed run. Set the final argument to your desired seed count. The last harvest can exceed that count.
+
+```sh
+lua cropsnh-breeder.lua field Wheat 31/31/31 16
+```
+
+## Multiple plots with one robot
+
+Use the same dock and an open flight path over loaded ground. Put the centers **4, 8, 12, … blocks** ahead of it, following the order of `plots` in the config. The `left`, `right`, `front`, and `back` parent tiles are immediately adjacent to each center, relative to the robot’s facing at the dock. Leave unused parent tiles empty. [GTNH robot flight settings](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L1594-L1601)
+
+- List each planned cross with its output `crop` ID and `parents`. Use the IDs printed by the script. An optional `label` lets you target the crop by its display name. Duplicate a plot entry to run the same cross at several centers.
+- Use NEI to prepare the soil, sub-soil, and light for each crop. Leave the center and parent tiles bare. Stock the lower chest with one CropsNH seed bag per starter parent. The robot breeds intermediate seeds using the configured crosses. Supply any machine-only intermediate seed from the Crop Breeder.
+- For a stat target, add a `stats = true` plot for that crop. Prepare its center and left parent tile with matching soil, and keep the parent above 100 stored fertilizer.
+
+The [example config](config.example.lua) uses Wheat and Brown Mushroom for Oak Bonsai, then Oak Bonsai and Sugar Cane for Birch Bonsai. The third plot raises Birch Bonsai's stats. On a field prepared for those three plots, copy the example to a separate config and run it as follows. [CropsNH bonsai recipes](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/loaders/MutationLoader.java#L275-L287)
+
+```sh
+cp config.example.lua bonsai.lua
+lua cropsnh-breeder.lua field "Birch Bonsai" 31/31/31 1 bonsai.lua
+```
+
+The field arguments after the crop name are the **minimum Growth/Gain/Resistance**, the **number of qualifying seeds**, and an optional **config filename**. They default to `1/1/1`, `1`, and `config.lua`.
+
+### Restart a field run
+
+Press **Ctrl+C** to stop. The robot tries to return to the dock. If it stops elsewhere, return it by hand and face it down the row before restarting. The program records planted parents in `state/` beside the config. Keep the same positions and assignments when restarting. Add new plots at the end of the config.
+
+If the robot reports an interrupted planting, clear the named parent tile and restart from the dock. Coordinates in messages count blocks forward and right from the dock.
+
+## Single-plot mode
+
+Choose a crop-stick cross in NEI. Plant the parents by hand on the required sides of one center tile and leave the center bare. Put the robot directly above that center with an output chest against its **front** at robot height. Place a powered, redstone-enabled Charger against another side. A Crop Manager can tend the crops with harvesting disabled.
+
+For a standalone install, download the script in a fresh directory and start it.
 
 ```sh
 wget https://raw.githubusercontent.com/SupergerAmadej/GTNH/main/programs/cropsnh-breeder/cropsnh-breeder.lua
 lua cropsnh-breeder.lua
 ```
 
-The default run stops after putting one seed of any species into the chest. To test it, plant Wheat next to the center on matching soil and let the robot collect a seed from a spread. Higher resistance makes seeds more likely to drop.
+From an existing field installation, run `lua cropsnh-breeder.lua` from its directory.
+
+The default run collects one seed of any crop. Pass a crop name and a count to target a species, or use `any 0` to collect continuously. An optional third argument sets the stalled-crop retry in seconds. The default is `600`.
 
 ```sh
-lua cropsnh-breeder.lua "Crop Name"
-lua cropsnh-breeder.lua "Crop Name" 4
+lua cropsnh-breeder.lua Wheat 4
 lua cropsnh-breeder.lua any 0
 ```
 
-The first two commands take the crop name shown in NEI or the crop ID printed on the console. They stop after one or four matching seeds, respectively. The last command keeps collecting crosses until you press **Ctrl+C**. Any other seeds also go into the chest. The robot waits if the chest fills or its charge runs low.
+## Troubleshooting
 
-### What to expect
+| Symptom | Check |
+| --- | --- |
+| Robot waits for charge | Make sure the adjacent Charger has power and a redstone signal. |
+| Robot reports a blocked passage or cannot place sticks | Check the clear flight path, crop-stick height, soil, and the robot's block interaction permissions. |
+| Wheat grows slowly or yields no seeds | Check light, water, fertilizer, and Weed-EX. Allow time for the parent to mature and for low-resistance offspring to drop a seed. |
+| Robot waits for chest space | Clear space in the chest named on the console. |
+| Script cannot read seed NBT | Check `allowItemStackNBTTags=true` and that the robot has a Data Card with `decodeNBT`. |
 
-- The Geolyzer recognizes the crop-stick block. The robot reads species and stats from collected seeds. A low-resistance crop may need a few harvests to yield a seed, even with a Reinforced Spade. The console prints growth, gain, and resistance for each seed stack it collects.
-- The robot retries the center plot after ten minutes without a usable result from an occupied plot. Give slow-growing crops more time with the optional third argument, in seconds. For example, `lua cropsnh-breeder.lua "Crop Name" 1 1200` allows twenty minutes. Keep the center clear of unrelated blocks and loose items.
-- The parents stay in place for the whole run. The robot can only obtain crops that breed or spread on sticks. Crops with only a **Crop Breeder** recipe in NEI still need that machine.
-- The robot shades the center, so check the target crop's light and nutrient requirements. Keep the area around the center open to light.
-- If the robot cannot place or clear crop sticks, check the center soil, the robot's height above it, and whether your claim allows the robot to interact with blocks. You can restart the program at the same position.
-
-The robot uses the stock pack's item NBT support and the GTNH Data Card's `decodeNBT` method. [GTNH 2.9.0 OpenComputers configuration](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L611-L618) · [GTNH Data Card implementation](https://github.com/GTNewHorizons/OpenComputers/blob/1.12.68-GTNH/src/main/scala/li/cil/oc/server/component/DataCard.scala#L147-L152)
-
-## Multiple plots with one robot
-
-Use the same robot hardware and tool slots. Put about a stack of crop sticks in slot 1 for the initial planting. This mode uses a **dock** with the seed chest directly below the robot, the output chest directly above it, and a powered, redstone-enabled Charger touching a horizontal side. Start the robot at the dock, facing down the row of plots.
-
-```text
-Layout from above, with the robot facing right at the dock
-
-                 left parent       left parent       left parent
-Dock  ───────────  Plot 1  ────────  Plot 2  ────────  Plot 3  ── …
-                 right parent      right parent
-```
-
-The crop center tiles are **4, 8, 12, … blocks straight ahead of the dock**, at crop-stick height one block below the robot. Keep a clear flight path at robot height over the row and each parent tile. The parent tiles are one block from the center in the four directions named in the config, relative to the way the robot faces at the dock. Leave unused parent tiles empty. The pack allows flight close to the ground, so keep the route over terrain and in loaded chunks. [GTNH 2.9.0 flight settings](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L1594-L1601)
-
-### Install field mode
-
-Install in a fresh directory so the installer can fetch all three files from the same Git ref.
-
-```sh
-mkdir cropsnh-field
-cd cropsnh-field
-wget https://raw.githubusercontent.com/SupergerAmadej/GTNH/main/programs/cropsnh-breeder/install.lua
-lua install.lua
-cp config.example.lua config.lua
-edit config.lua
-```
-
-For a pinned install, use the same commit SHA in the URL and as the argument to `lua install.lua SHA`.
-
-### Test field mode with Wheat
-
-For a one-plot test, prepare hydrated farmland at the center four blocks ahead of the dock and one block to its left. Leave both tiles bare and keep them lit. Put one `1/1/1` CropsNH Wheat seed bag in the lower chest. Use a Crop Manager with water, fertilizer, and Weed-EX. Enable fertilizing and disable harvesting. The Wheat parent needs **101+ stored fertilizer** to improve by spreading.
-
-Run these commands at the dock in the robot's OpenOS terminal. The longer retry interval gives low-growth Wheat time to mature before the robot replaces a stalled cross.
-
-```sh
-cd /home
-mkdir cropsnh-wheat
-cd cropsnh-wheat
-wget https://raw.githubusercontent.com/SupergerAmadej/GTNH/main/programs/cropsnh-breeder/install.lua
-lua install.lua
-echo 'return {retrySeconds=2400,plots={{crop="wheat",stats=true}}}' > config.lua
-lua cropsnh-breeder.lua field Wheat 31/31/31 1
-```
-
-### Prepare the plots and start
-
-1. In `config.lua`, list the crosses available in your field. Each `crop` and parent uses its CropsNH crop ID, as printed by the one-plot mode. An optional `label` lets you use the display name on the command line. The order of the entries sets their locations. List the same cross more than once to grow it at several centers.
-2. Prepare the soil, sub-soil, light, and nutrients for each crop according to NEI. Leave the center and parent tiles bare. Place **CropsNH seed bags** for the starter crops in the seed chest. Supply one seed per parent tile that needs it. The robot plants the parents and puts intermediate seeds into the same chest for later crosses. For a crop that can only be made in the Crop Breeder, supply its seed in the chest.
-3. For automatic stat improvement, give the target crop a separate entry with `stats = true`. Prepare both that center and its **left** parent tile for the target crop. Power a Crop Manager and supply fertilizer and Weed-EX. Enable fertilizing and disable harvesting. Keep stored fertilizer at the parent above **100** so spreading can raise stats under the default rules. [CropsNH spreading stat rules](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/handler/ConfigurationHandler.java#L158-L189)
-
-The included example runs **Wheat + Brown Mushroom → Oak Bonsai**, then **Oak Bonsai + Sugar Cane → Birch Bonsai**. The third plot spreads Birch Bonsai. Put Wheat, Brown Mushroom, and Sugar Cane seed bags in the lower chest. [CropsNH bonsai mutation recipes](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/loaders/MutationLoader.java#L275-L287)
-
-```sh
-lua cropsnh-breeder.lua field "Birch Bonsai" 31/31/31 1
-```
-
-The arguments after the crop name are the minimum Growth/Gain/Resistance and the number of qualifying seeds to collect. They default to `1/1/1` and `1`. The robot returns to the dock between jobs. It only schedules intermediate crosses for parents it still needs, using the routes described in `config.lua`. It replaces the stat plot's parent with an offspring whose stats are closer to the target. Allow time for the replacement parent to grow. The output chest also receives produce and surplus seeds, so leave space for those on long runs.
-
-### Restarting a field run
-
-Start each run at the same dock facing the same way. The robot attempts to return to the dock if interrupted. If it cannot, return it to the dock by hand before restarting. The robot saves the parents it has planted under `state/` beside your config. Keep the same positions and parent assignments for those plots. You can append plots to the end of the config. If power cuts out while a parent is being planted, the program identifies that tile on restart. Clear that tile before restarting again so the robot can replant it. Coordinates in messages are blocks forward and right from the dock.
+[GTNH 2.9.0 NBT setting](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L611-L618) · [GTNH Data Card implementation](https://github.com/GTNewHorizons/OpenComputers/blob/1.12.68-GTNH/src/main/scala/li/cil/oc/server/component/DataCard.scala#L147-L152)
