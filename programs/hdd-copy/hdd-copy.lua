@@ -117,18 +117,27 @@ local function withFile(filesystem, path, mode, action)
 end
 
 local function download(filesystem, url, path)
-  local response = require("internet").request(url)
+  -- Use the component directly because the OpenOS wrapper nests callable tables for close.
+  local request = assert(component.internet.request(url))
+  local function readChunk()
+    while true do
+      local chunk, reason = request.read(4096)
+      assert(not reason, reason)
+      if chunk ~= "" then return chunk end
+      os.sleep(0)
+    end
+  end
   local ok, reason = pcall(function()
-    local chunk = assert(response(), "Empty download from " .. url)
+    local chunk = assert(readChunk(), "Empty download from " .. url)
     withFile(filesystem, path, "wb", function(file)
       repeat
         assert(file:write(chunk))
-        chunk = response()
+        chunk = readChunk()
       until not chunk
     end)
   end)
-  local missing = not ok and response.response() == 404
-  response.close()
+  local missing = not ok and request.response() == 404
+  request.close()
   if not ok and not missing then
     error("Could not download " .. url .. ": " .. tostring(reason), 0)
   end
