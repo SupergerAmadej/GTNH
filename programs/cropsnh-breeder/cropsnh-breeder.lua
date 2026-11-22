@@ -1,7 +1,9 @@
 local target, countArg, timeoutArg = ...
+local fieldMode = target == "field"
 
 if target == "--help" then
   print('Usage: lua cropsnh-breeder.lua ["crop name"|any] [seed count] [retry seconds]')
+  print('       lua cropsnh-breeder.lua field "crop name" [growth/gain/resistance] [seed count] [config.lua]')
   print("Defaults: any crop, 1 seed, 600 seconds before replacing a stalled cross.")
   print("Use a seed count of 0 to keep breeding.")
   return
@@ -11,12 +13,15 @@ local function normalize(name)
   return name:lower():gsub("[^%w]", "")
 end
 
-target = normalize(target or "any")
-local goal = tonumber(countArg or 1)
-local retryAfter = tonumber(timeoutArg or 600)
-assert(target ~= "", "Enter a crop name or any.")
-assert(goal and goal >= 0 and goal < math.huge and goal % 1 == 0, "Enter a whole seed count of 0 or more.")
-assert(retryAfter and retryAfter >= 60 and retryAfter < math.huge, "Enter a retry time of at least 60 seconds.")
+local goal, retryAfter
+if not fieldMode then
+  target = normalize(target or "any")
+  goal = tonumber(countArg or 1)
+  retryAfter = tonumber(timeoutArg or 600)
+  assert(target ~= "", "Enter a crop name or any.")
+  assert(goal and goal >= 0 and goal < math.huge and goal % 1 == 0, "Enter a whole seed count of 0 or more.")
+  assert(retryAfter and retryAfter >= 60 and retryAfter < math.huge, "Enter a retry time of at least 60 seconds.")
+end
 
 local component = require("component")
 local computer = require("computer")
@@ -56,36 +61,47 @@ local function withTool(slot, action)
   if not ok then error(reason, 0) end
 end
 
-local function armPlot()
-  local needed = blockBelow() == "minecraft:air" and 2 or 1
+local function placeSticks(needed, bare)
   local before = robot.count(sticksSlot)
   assert(before > needed, "Add more CropsNH crop sticks to inventory slot 1.")
-  if needed == 2 then
+  if bare then
     robot.select(sticksSlot)
-    robot.placeDown(sides.down, true)
+    robot.placeDown(sides.down, needed == 2)
   else
     withTool(sticksSlot, function() robot.useDown(sides.down) end)
   end
   assert(blockBelow() == cropSticks and before - robot.count(sticksSlot) == needed,
-    "Could not set double crop sticks. Check the soil and robot block-interaction permissions.")
+    "Could not set crop sticks. Check the soil and robot block-interaction permissions.")
 end
 
-local function sendToChest(slot)
+local function armPlot()
+  local bare = blockBelow() == "minecraft:air"
+  placeSticks(bare and 2 or 1, bare)
+end
+
+local function sendToChest(slot, side, limit)
+  side = side or sides.front
   robot.select(slot)
+  local wanted = math.min(robot.count(slot), limit or math.huge)
+  local remaining = wanted
   local waiting = false
-  while robot.count(slot) > 0 do
+  while remaining > 0 do
     local before = robot.count(slot)
-    local size = inventory.getInventorySize(sides.front) or 0
+    local size = inventory.getInventorySize(side) or 0
     for chestSlot = 1, size do
-      inventory.dropIntoSlot(sides.front, chestSlot, robot.count(slot))
-      if robot.count(slot) == 0 then return end
+      local previous = robot.count(slot)
+      inventory.dropIntoSlot(side, chestSlot, remaining)
+      remaining = remaining - (previous - robot.count(slot))
+      if remaining == 0 then return wanted end
     end
     if robot.count(slot) == before then
-      if not waiting then print("Waiting for space in the chest in front of the robot.") end
+      local location = side == sides.down and "below" or side == sides.up and "above" or "in front of the robot"
+      if not waiting then print("Waiting for space in the chest " .. location .. ".") end
       waiting = true
       os.sleep(5)
     end
   end
+  return wanted
 end
 
 local function readSeed(stack)
@@ -120,15 +136,19 @@ local function drainLoot(result)
   end
 end
 
-local function collectDrops(sticksBefore)
-  local result = {sticks = false, seeds = 0, matches = 0}
+local function sweepDrops(onPickup)
   -- Give any drops that OpenComputers did not pick up directly time to settle.
   os.sleep(0.75)
   repeat
     robot.select(firstLootSlot)
     local pickedUp = robot.suckDown(64)
-    drainLoot(result)
+    if onPickup then onPickup() end
   until not pickedUp
+end
+
+local function collectDrops(sticksBefore)
+  local result = {sticks = false, seeds = 0, matches = 0}
+  sweepDrops(function() drainLoot(result) end)
   result.sticks = result.sticks or (sticksBefore and robot.count(sticksSlot) > sticksBefore)
   return result
 end
@@ -150,19 +170,42 @@ local function resetPlot()
   return result
 end
 
-assert(slots >= firstLootSlot, "Install an Inventory Upgrade for the robot.")
-checkSupply(sticksSlot, cropSticks, "CropsNH crop sticks")
-checkSupply(lensSlot, "cropsnh:plantLens", "a Plant Lens")
+local function checkSupplies()
+  assert(slots >= firstLootSlot, "Install an Inventory Upgrade for the robot.")
+  checkSupply(sticksSlot, cropSticks, "CropsNH crop sticks")
+  checkSupply(lensSlot, "cropsnh:plantLens", "a Plant Lens")
+end
+
+local function checkSpade()
+  withTool(firstLootSlot, function()
+    local tool = inventory.getStackInInternalSlot(firstLootSlot)
+    assert(tool and tool.name == "cropsnh:reinforcedSpade", "Equip a Reinforced Spade in the robot's tool slot.")
+  end)
+end
+
+checkSupplies()
+if fieldMode then
+  local filesystem = require("filesystem")
+  local shell = require("shell")
+  local source = debug.getinfo(1, "S").source:match("^@(.+)$")
+  local directory = filesystem.path(shell.resolve(assert(source, "Run the breeder from a script file.")))
+  local field = assert(loadfile(filesystem.concat(directory, "field.lua")))
+  return field({
+    robot = robot, inventory = inventory, computer = computer, sides = sides,
+    blockBelow = blockBelow, withTool = withTool, armPlot = armPlot, placeSticks = placeSticks,
+    sendToChest = sendToChest, readSeed = readSeed, sweepDrops = sweepDrops, checkSpade = checkSpade,
+    normalize = normalize, cropSticks = cropSticks, seedItem = seedItem, sticksSlot = sticksSlot,
+    lensSlot = lensSlot, firstLootSlot = firstLootSlot, slots = slots, pollSeconds = pollSeconds
+  }, select(2, ...))
+end
+
 assert(inventory.getInventorySize(sides.front), "Place an output chest directly in front of the robot.")
 waitForCharge()
 local below = blockBelow()
 
 local carried = {sticks = false, seeds = 0, matches = 0}
 drainLoot(carried)
-withTool(firstLootSlot, function()
-  local tool = inventory.getStackInInternalSlot(firstLootSlot)
-  assert(tool and tool.name == "cropsnh:reinforcedSpade", "Equip a Reinforced Spade in the robot's tool slot.")
-end)
+checkSpade()
 
 if below == "minecraft:air" then armPlot() end
 local collected = carried.matches

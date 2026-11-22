@@ -30,7 +30,7 @@ Use `main` to fetch the latest pushed code while developing. Replace `main` with
 
 ## Programs
 
-- [CropsNH breeder](programs/cropsnh-breeder/README.md) runs a robot over one crossbreeding plot and collects seeds from the offspring.
+- [CropsNH breeder](programs/cropsnh-breeder/README.md) runs a robot over one crossbreeding plot or a row of plots with intermediate crosses and stat targets.
 - [Factory Control](programs/factory-control/README.md) maps multiblocks reported by wireless agents and provides per-controller details and work controls.
 - [HDD copy](programs/hdd-copy/README.md) copies the contents of a managed OpenComputers HDD to an empty drive.
 - [LSC power monitor](programs/lsc-power-monitor/README.md) shows charge, input, output, and passive loss for a Lapotronic Supercapacitor.
