@@ -187,7 +187,7 @@ checkSupplies()
 if fieldMode then
   local filesystem = require("filesystem")
   local shell = require("shell")
-  local source = debug.getinfo(1, "S").source:match("^@(.+)$")
+  local source = debug.getinfo(1, "S").source:match("^[@=](.+)$")
   local directory = filesystem.path(shell.resolve(assert(source, "Run the breeder from a script file.")))
   local field = assert(loadfile(filesystem.concat(directory, "field.lua")))
   return field({
