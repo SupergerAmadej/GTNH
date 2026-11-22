@@ -148,7 +148,7 @@ Save this as `config.lua` and run `lua cropsnh-breeder.lua field Wheat 31/31/31 
 
 Place a chest one block to the left, right, or back of the dock at robot height. Add `rejectChest = "left",` to `config.lua`, using the direction relative to the robot when it faces the plots. The robot sends Wheat seeds from Wheat stat plots to that chest if they fall short of the target and can't improve any configured Wheat parent. The same rule applies to other crops in their stat plots.
 
-Qualifying seeds still count toward the goal and go to the upper chest. The lower chest still receives saved improvements and intermediate seeds. Keep room in the reject chest, or pipe its contents to a trash can for automatic disposal.
+Qualifying seeds count toward the goal and go to the upper chest. The robot saves below-target seeds that can improve any parent of their crop in the lower chest, including multiple upgrades from one harvest. It also stores intermediate seeds there. Keep room in the reject chest, or pipe its contents to a trash can for automatic disposal.
 
 ### Restart a field run
 
@@ -185,7 +185,7 @@ lua cropsnh-breeder.lua any 0
 | Robot waits for charge | Make sure the adjacent Charger has power and a redstone signal. |
 | Robot reports a blocked passage or cannot place sticks | Check the clear flight path, crop-stick height, soil, and the robot's block interaction permissions. |
 | Wheat grows slowly or yields no seeds | Check light, water, fertilizer, and Weed-EX. Allow time for the parent to mature and for low-resistance offspring to drop a seed. |
-| Better Wheat seeds are in the upper chest but parents stay at 1/1/1 | Update `field.lua` to pick up the fix for CropsNH crop IDs. Move the best seed to the lower chest and restart at the dock with the same config. |
+| An upgrade is in the upper chest after running an older version | Update `field.lua`, move the seed to the lower chest, and restart at the dock with the same config. Look for `Saved ... for replanting` as the robot collects new upgrades. |
 | Robot waits for chest space | Clear space in the chest named on the console. |
 | Script cannot read seed NBT | Check `allowItemStackNBTTags=true` and that the robot has a Data Card with `decodeNBT`. |
 

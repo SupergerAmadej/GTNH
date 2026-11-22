@@ -266,38 +266,32 @@ local function stock()
 end
 
 local delivered = 0
-local function drain(plot, parent, recover)
-  local savedImprovement = false
+local function drain(plot, recover)
   local read = recover and starterInfo or seedInfo
   for slot = hw.firstLootSlot, hw.slots do
     if robot.count(slot) > 0 then
       local stack = assert(inventory.getStackInInternalSlot(slot), "Could not inspect the robot inventory.")
       local seed = read(stack)
+      local statSeed = seed and plot and plot.stats and seed.crop == plot.crop
       if stack.name == hw.cropSticks then
         robot.select(slot)
         robot.transferTo(hw.sticksSlot)
       elseif seed and plot and seed.crop == target and deficit(seed) == 0 then
         delivered = delivered + hw.sendToChest(slot, outputSide)
         print(("%s %d/%d/%d, delivered %d/%d"):format(seed.label, seed.growth, seed.gain, seed.resistance, delivered, goal))
-      elseif seed and (recover or (plot and seed.crop == plot.crop and not plot.stats)) then
+      elseif seed and (recover or (plot and seed.crop == plot.crop
+          and (not plot.stats or canImproveParent(seed)))) then
         hw.sendToChest(slot, seedSide)
         bank = nil
-      elseif seed and plot and plot.stats and seed.crop == plot.crop and not savedImprovement
-          and deficit(seed) < deficit(parent) then
-        hw.sendToChest(slot, seedSide, 1)
-        savedImprovement = true
-        bank = nil
-      end
-      if robot.count(slot) > 0 then
-        if rejectHeading and seed and plot and plot.stats and seed.crop == plot.crop
-            and not canImproveParent(seed) then
-          face(rejectHeading)
-          hw.sendToChest(slot, sides.front)
-          face(0)
-        else
-          hw.sendToChest(slot, outputSide)
+        if statSeed then
+          print(("Saved %s %d/%d/%d for replanting"):format(seed.label, seed.growth, seed.gain, seed.resistance))
         end
+      elseif rejectHeading and statSeed then
+        face(rejectHeading)
+        hw.sendToChest(slot, sides.front)
+        face(0)
       end
+      if robot.count(slot) > 0 then hw.sendToChest(slot, outputSide) end
     end
   end
 end
@@ -329,7 +323,7 @@ local function setParent(plot, parent, candidate)
     save()
   end)
   print(("Planted %s %d/%d/%d at %s"):format(seed.label, seed.growth, seed.gain, seed.resistance, parent.key))
-  drain(rejectHeading and plot.stats and plot, seed)
+  drain(plot.stats and plot)
 end
 
 local function upgradeSingleSticks()
@@ -395,7 +389,7 @@ local function visit(plot)
       plot.retryAt = now + retryAfter
     end
   end)
-  drain(plot, state.parents[plot.parents[1].key])
+  drain(plot)
   return true
 end
 
@@ -438,7 +432,7 @@ local function run()
       "Place a reject chest " .. config.rejectChest .. " of the dock at robot height.")
     face(0)
   end
-  drain(nil, nil, true)
+  drain(nil, true)
   hw.checkSpade()
   if state.pending then
     local pending = state.pending
