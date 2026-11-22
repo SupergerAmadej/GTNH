@@ -21,6 +21,20 @@ lua hdd-copy.lua SOURCE_ADDRESS DESTINATION_ADDRESS
 
 After a successful copy, the script removes `/programs/hdd-copy.lua` from the destination HDD if the file is present. Wait for `Copy complete` before removing either HDD. If the copy stops partway through, use an empty destination to try again. To boot from the copy, shut down the computer and start it with the copied HDD in place of the original.
 
+## Install a program and start it at boot
+
+Pass a program folder name as the optional third argument. This requires an Internet Card on the computer doing the copy.
+
+```sh
+lua hdd-copy.lua SOURCE_ADDRESS DESTINATION_ADDRESS lsc-power-monitor
+```
+
+The script installs the program from this repository's `main` branch into `/programs/<program>` on the destination. It uses the program's `install.lua` if present. If that directory already exists, the new installation gets a numbered suffix such as `-2`.
+
+On a copy of OpenOS, `/home/.shrc` launches the new program in the foreground when the interactive shell starts. The new command runs first, and existing `.shrc` commands run after it exits. Remove the added first line to disable the new startup command.
+
+Use `factory-control` for central mode or `factory-control:agent` for agent mode. Hardware, pairing, and any program-specific configuration follow the selected program's README.
+
 ## Compatibility
 
 Targets GTNH 2.9.0 OpenOS and managed HDDs. In-game verification is pending.

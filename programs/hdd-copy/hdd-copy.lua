@@ -21,11 +21,24 @@ local function findDrive(prefix)
   return component.proxy(match)
 end
 
-local sourcePrefix, destinationPrefix = ...
-if select("#", ...) ~= 2 or sourcePrefix == "" or destinationPrefix == "" then
-  print("Usage: lua hdd-copy.lua SOURCE_ADDRESS DESTINATION_ADDRESS")
+local sourcePrefix, destinationPrefix, program = ...
+if not sourcePrefix or not destinationPrefix or select("#", ...) > 3
+    or sourcePrefix == "" or destinationPrefix == "" then
+  print("Usage: lua hdd-copy.lua SOURCE_ADDRESS DESTINATION_ADDRESS [PROGRAM]")
   print("Run mount to find the addresses. Unique address prefixes work too.")
   return
+end
+
+local launchArgs = ""
+if program then
+  if program == "factory-control:agent" then
+    program, launchArgs = "factory-control", " agent"
+  elseif program == "factory-control" then
+    launchArgs = " central"
+  end
+  assert(program:match("^[a-z0-9][a-z0-9%-]*$"), "Use a GTNH repository program name.")
+  assert(program ~= "hdd-copy", "HDD copy needs drive addresses and cannot be installed for startup.")
+  assert(component.isAvailable("internet"), "Install an Internet Card to download a program.")
 end
 
 local source = findDrive(sourcePrefix)
@@ -95,6 +108,109 @@ local function copyDirectory(directory)
   end
 end
 
+local function withFile(filesystem, path, mode, action)
+  local file = assert(filesystem.open(path, mode))
+  local ok, result = pcall(action, file)
+  local _, closeReason = file:close()
+  if not ok then error(result, 0) end
+  assert(not closeReason, closeReason)
+end
+
+local function download(filesystem, url, path)
+  local response = require("internet").request(url)
+  local ok, reason = pcall(function()
+    local chunk = assert(response(), "Empty download from " .. url)
+    withFile(filesystem, path, "wb", function(file)
+      repeat
+        assert(file:write(chunk))
+        chunk = response()
+      until not chunk
+    end)
+  end)
+  local missing = not ok and response.response() == 404
+  response.close()
+  if not ok and not missing then
+    error("Could not download " .. url .. ": " .. tostring(reason), 0)
+  end
+  return ok
+end
+
+local function installProgram()
+  local filesystem = require("filesystem")
+  local shell = require("shell")
+  local mountPath = "/tmp/hdd-copy-install"
+  while filesystem.exists(mountPath) do
+    mountPath = mountPath .. "-"
+  end
+
+  local directory = "/programs/" .. program
+  local suffix = 2
+  while destination.exists(directory) do
+    directory = "/programs/" .. program .. "-" .. suffix
+    suffix = suffix + 1
+  end
+  local entry = program .. ".lua"
+  local ref = "main"
+  local url = "https://raw.githubusercontent.com/SupergerAmadej/GTNH/" .. ref .. "/programs/" .. program .. "/"
+  local shrc = "/home/.shrc"
+  local staging = mountPath .. temporary
+  local stagedShrc = temporary .. "/.hdd-copy-shrc"
+  local cwd = shell.getWorkingDirectory()
+  local staged, installed
+
+  assert(filesystem.mount(destination, mountPath))
+  local ok, reason = pcall(function()
+    assert(not destination.exists(temporary), "Temporary path already exists.")
+    assert(destination.makeDirectory(temporary))
+    staged = true
+    local installer = staging .. "/install.lua"
+    if download(filesystem, url .. "install.lua", installer) then
+      assert(shell.setWorkingDirectory(staging))
+      assert(loadfile(installer))(ref)
+      assert(shell.setWorkingDirectory(cwd))
+      assert(destination.remove(temporary .. "/install.lua"))
+    else
+      assert(download(filesystem, url .. entry, staging .. "/" .. entry), "Program not found on GitHub: " .. program)
+    end
+    assert(loadfile(staging .. "/" .. entry))
+
+    for _, parent in ipairs({"/programs", "/home"}) do
+      if not destination.exists(parent) then
+        assert(destination.makeDirectory(parent))
+      end
+      assert(destination.isDirectory(parent), parent .. " must be a directory.")
+    end
+    assert(not destination.isDirectory(shrc), shrc .. " must be a file.")
+    assert(not destination.exists(stagedShrc), "Temporary startup file already exists.")
+    local command = string.format("cd %s && %s/%s%s; cd /home\n", directory, directory, entry, launchArgs)
+    withFile(filesystem, mountPath .. stagedShrc, "wb", function(outputFile)
+      assert(outputFile:write(command))
+      if destination.exists(shrc) then
+        withFile(filesystem, mountPath .. shrc, "rb", function(inputFile)
+          while true do
+            local data, readReason = inputFile:read(4096)
+            assert(not readReason, readReason)
+            if not data then break end
+            assert(outputFile:write(data))
+          end
+        end)
+      end
+    end)
+
+    assert(not destination.exists(directory), "Install directory already exists.")
+    assert(destination.rename(temporary, directory), "Could not move program into " .. directory)
+    installed = true
+    assert(destination.rename(directory .. "/.hdd-copy-shrc", shrc), "Could not update " .. shrc)
+  end)
+  shell.setWorkingDirectory(cwd)
+  filesystem.umount(mountPath)
+  if not ok then
+    if staged then pcall(destination.remove, installed and directory or temporary) end
+    error("HDD copied, but startup setup failed for " .. program .. ": " .. tostring(reason), 0)
+  end
+  print("Installed " .. program .. " in " .. directory .. " and added it to " .. shrc .. ".")
+end
+
 print("Copying " .. source.address .. " to " .. destination.address)
 local ok, reason = pcall(copyDirectory, "/")
 if not ok then
@@ -113,4 +229,5 @@ if destination.exists(cleanupPath) and not destination.isDirectory(cleanupPath) 
   end
   print("Removed " .. cleanupPath .. " from the destination HDD.")
 end
+if program then installProgram() end
 print(string.format("Copy complete. %d file(s) copied.", copied))
