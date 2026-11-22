@@ -266,8 +266,20 @@ local function stock()
 end
 
 local delivered = 0
+local function discardSeed(slot)
+  face(rejectHeading or 2)
+  if rejectHeading then
+    hw.sendToChest(slot, sides.front)
+  else
+    robot.select(slot)
+    local _, reason = robot.drop(robot.count(slot))
+    assert(robot.count(slot) == 0, "Could not drop inferior seeds behind the dock: " .. tostring(reason or "slot still occupied"))
+  end
+  face(0)
+end
+
 local function drain(plot, recover)
-  local read = recover and starterInfo or seedInfo
+  local read = (recover or (plot and plot.stats)) and starterInfo or seedInfo
   for slot = hw.firstLootSlot, hw.slots do
     if robot.count(slot) > 0 then
       local stack = assert(inventory.getStackInInternalSlot(slot), "Could not inspect the robot inventory.")
@@ -286,10 +298,8 @@ local function drain(plot, recover)
         if statSeed then
           print(("Saved %s %d/%d/%d for replanting"):format(seed.label, seed.growth, seed.gain, seed.resistance))
         end
-      elseif rejectHeading and statSeed then
-        face(rejectHeading)
-        hw.sendToChest(slot, sides.front)
-        face(0)
+      elseif statSeed then
+        discardSeed(slot)
       end
       if robot.count(slot) > 0 then hw.sendToChest(slot, outputSide) end
     end

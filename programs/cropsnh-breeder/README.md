@@ -89,7 +89,7 @@ cd /home/cropsnh-wheat
 lua cropsnh-breeder.lua field Wheat 31/31/31 1
 ```
 
-The run stops after depositing **at least one `31/31/31` Wheat seed** in the upper chest. Early plants can take several harvests to drop a seed. The `2400`-second retry gives low-growth Wheat time to mature. The upper chest also receives produce and surplus seeds, so leave space for long runs.
+The run stops after depositing **at least one `31/31/31` Wheat seed** in the upper chest. Early plants can take several harvests to drop a seed. The `2400`-second retry gives low-growth Wheat time to mature. Leave room in the upper chest for produce as well.
 
 To multiply maxed seeds, use the same plot with a `31/31/31` starter or a maxed plant from a completed run. Set the final argument to your desired seed count. The last harvest can exceed that count.
 
@@ -146,7 +146,7 @@ Save this as `config.lua` and run `lua cropsnh-breeder.lua field Wheat 31/31/31 
 
 ### Sort out inferior seeds
 
-Place a chest one block to the left, right, or back of the dock at robot height. Add `rejectChest = "left",` to `config.lua`, using the direction relative to the robot when it faces the plots. The robot sends Wheat seeds from Wheat stat plots to that chest if they fall short of the target and can't improve any configured Wheat parent. The same rule applies to other crops in their stat plots.
+If a seed from a stat plot falls short of the target and can't improve any parent of that crop, the robot drops it behind the dock. Leave room behind the robot for the drops. To collect them in a chest, place it one block to the left, right, or back of the dock at robot height. Add `rejectChest = "left",` to `config.lua`, using the direction relative to the robot when it faces the plots.
 
 Qualifying seeds count toward the goal and go to the upper chest. The robot saves below-target seeds that can improve any parent of their crop in the lower chest, including multiple upgrades from one harvest. It also stores intermediate seeds there. Keep room in the reject chest, or pipe its contents to a trash can for automatic disposal.
 
