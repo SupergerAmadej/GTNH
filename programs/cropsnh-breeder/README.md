@@ -154,6 +154,8 @@ Qualifying seeds still count toward the goal and go to the upper chest. The lowe
 
 Press **Ctrl+C** to stop. The robot tries to return to the dock. If it stops elsewhere, return it by hand and face it down the row before restarting. The program records planted parents in `state/` beside the config. You can add plots anywhere the spacing allows. Keep each already used plot at its original distance from the dock with the same crop and parents.
 
+On the next visit to a running plot, the robot replaces a missing breeding center or upgrades an empty single crop stick to a cross. Keep spare CropsNH crop sticks in the chest below the dock.
+
 If the robot reports an interrupted planting, clear the named parent tile and restart from the dock. Coordinates in messages count blocks forward and right from the dock.
 
 ## Single-plot mode

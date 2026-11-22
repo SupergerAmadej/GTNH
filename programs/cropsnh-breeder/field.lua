@@ -332,6 +332,14 @@ local function setParent(plot, parent, candidate)
   drain(rejectHeading and plot.stats and plot, seed)
 end
 
+local function upgradeSingleSticks()
+  local before = robot.count(hw.sticksSlot)
+  if before < 2 then return false end
+  -- After the harvest attempt, an empty single stick accepts an upgrade.
+  hw.withTool(hw.sticksSlot, function() robot.useDown(sides.down) end)
+  return robot.count(hw.sticksSlot) == before - 1
+end
+
 local function visit(plot)
   for _, parent in ipairs(plot.parents) do
     local current = state.parents[parent.key]
@@ -351,8 +359,12 @@ local function visit(plot)
       state.centers[plot.x] = true
       save()
     end
-    if block == air then hw.armPlot() end
     local now = computer.uptime()
+    if block == air then
+      hw.armPlot()
+      plot.retryAt = now + retryAfter
+      return
+    end
     plot.retryAt = plot.retryAt or now + retryAfter
 
     hw.withTool(hw.lensSlot, function() robot.useDown(sides.down) end)
@@ -371,8 +383,8 @@ local function visit(plot)
       wantedSeed = wantedSeed or (seed and seed.crop == plot.crop)
       qualified = qualified or (seed and seed.crop == target and deficit(seed) == 0)
     end
-    if emptyCross and not anySeed then
-      hw.armPlot()
+    if not anySeed and (emptyCross or upgradeSingleSticks()) then
+      if emptyCross then hw.armPlot() end
       plot.retryAt = now + retryAfter
     elseif (anySeed and (not wantedSeed or (plot.stats and not qualified))) or (not wantedSeed and now >= plot.retryAt) then
       robot.swingDown(sides.down)
