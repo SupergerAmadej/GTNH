@@ -156,6 +156,13 @@ local function seedInfo(stack)
   return {crop = cropKey(name), growth = growth, gain = gain, resistance = resistance, label = stack.label or name}
 end
 
+local function starterInfo(stack)
+  if stack and stack.name == "minecraft:wheat_seeds" then
+    return {crop = "wheat", growth = 1, gain = 1, resistance = 1, label = stack.label or "Wheat Seeds"}
+  end
+  return seedInfo(stack)
+end
+
 local function deficit(seed)
   return math.max(0, minimum[1] - seed.growth) + math.max(0, minimum[2] - seed.gain)
     + math.max(0, minimum[3] - seed.resistance)
@@ -175,7 +182,7 @@ local function stock()
   bank = {}
   local size = assert(inventory.getInventorySize(seedSide), "Seed chest is missing at the dock.")
   for slot = 1, size do
-    local seed = seedInfo(inventory.getStackInSlot(seedSide, slot))
+    local seed = starterInfo(inventory.getStackInSlot(seedSide, slot))
     if seed and better(seed, bank[seed.crop]) then
       seed.slot = slot
       bank[seed.crop] = seed
@@ -187,10 +194,11 @@ end
 local delivered = 0
 local function drain(plot, parent, recover)
   local savedImprovement = false
+  local read = recover and starterInfo or seedInfo
   for slot = hw.firstLootSlot, hw.slots do
     if robot.count(slot) > 0 then
       local stack = assert(inventory.getStackInInternalSlot(slot), "Could not inspect the robot inventory.")
-      local seed = seedInfo(stack)
+      local seed = read(stack)
       if stack.name == hw.cropSticks then
         robot.select(slot)
         robot.transferTo(hw.sticksSlot)
@@ -216,7 +224,7 @@ local function setParent(parent, candidate)
   robot.select(slot)
   inventory.suckFromSlot(seedSide, candidate.slot, 1)
   bank = nil
-  local seed = seedInfo(inventory.getStackInInternalSlot(slot))
+  local seed = starterInfo(inventory.getStackInInternalSlot(slot))
   assert(seed and seed.crop == parent.crop and robot.count(slot) == 1
       and seed.growth == candidate.growth and seed.gain == candidate.gain and seed.resistance == candidate.resistance,
     "Seed chest changed during pickup. Restart at the dock.")

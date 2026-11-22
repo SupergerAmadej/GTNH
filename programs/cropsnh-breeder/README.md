@@ -26,14 +26,14 @@ Targets CropsNH 2.0.140. The `1/1/1` to `31/31/31` Wheat run passed in simulatio
 
 ## Test field mode with Wheat
 
-This test starts with **one `1/1/1` CropsNH Wheat seed bag**. The robot plants it and replaces the parent with better offspring until it collects a `31/31/31` seed.
+Start with **one regular Wheat Seeds item** or one **`1/1/1` CropsNH Wheat seed bag**. Regular Wheat Seeds grow into `1/1/1` Wheat on CropsNH sticks. The robot replaces the parent with better offspring until it collects a `31/31/31` seed. [CropsNH Wheat seed registration](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/crops/food/vanilla/CropWheat.java#L13-L19)
 
 ### 1. Build the dock and plot
 
 - Put the **seed chest directly below** the robot and the **output chest directly above** it. Place the powered OpenComputers Charger against a horizontal side and turn it on with a lever.
 - Face the robot down the row. Prepare the **center four blocks straight ahead of the dock** and the **parent one block left of the center**, relative to where the robot is facing.
 - Put lit, hydrated farmland **two blocks below the robot's flight level** at both tiles. Leave the block immediately above each soil block empty. That's where the robot places the crop sticks. Keep the flight path over the row and parent clear.
-- Give a Crop Manager water, fertilizer, and Weed-EX. Set it to tend both tiles, enable fertilizing, and turn harvesting off. Keep the parent at **101+ stored fertilizer** so spreading can improve its stats. Put the Wheat seed bag in the lower chest. [CropsNH spreading rules](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/handler/ConfigurationHandler.java#L158-L189)
+- Give a Crop Manager water, fertilizer, and Weed-EX. Set it to tend both tiles, enable fertilizing, and turn harvesting off. Keep the parent at **101+ stored fertilizer** so spreading can improve its stats. Put the starter seed in the lower chest. [CropsNH spreading rules](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/handler/ConfigurationHandler.java#L158-L189)
 
 ```text
 Forward from dock   0       1       2       3       4
@@ -102,7 +102,7 @@ lua cropsnh-breeder.lua field Wheat 31/31/31 16
 Use the same dock and an open flight path over loaded ground. Put the centers **4, 8, 12, … blocks** ahead of it, following the order of `plots` in the config. The `left`, `right`, `front`, and `back` parent tiles are immediately adjacent to each center, relative to the robot’s facing at the dock. Leave unused parent tiles empty. [GTNH robot flight settings](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L1594-L1601)
 
 - List each planned cross with its output `crop` ID and `parents`. Use the IDs printed by the script. An optional `label` lets you target the crop by its display name. Duplicate a plot entry to run the same cross at several centers.
-- Use NEI to prepare the soil, sub-soil, and light for each crop. Leave the center and parent tiles bare. Stock the lower chest with one CropsNH seed bag per starter parent. The robot breeds intermediate seeds using the configured crosses. Supply any machine-only intermediate seed from the Crop Breeder.
+- Use NEI to prepare the soil, sub-soil, and light for each crop. Leave the center and parent tiles bare. Stock the lower chest with one seed per starter parent. Use CropsNH seed bags or regular Wheat Seeds for Wheat. The robot breeds intermediate seeds using the configured crosses. Supply any machine-only intermediate seed from the Crop Breeder.
 - For a stat target, add a `stats = true` plot for that crop. Prepare its center and left parent tile with matching soil, and keep the parent above 100 stored fertilizer.
 
 The [example config](config.example.lua) uses Wheat and Brown Mushroom for Oak Bonsai, then Oak Bonsai and Sugar Cane for Birch Bonsai. The third plot raises Birch Bonsai's stats. On a field prepared for those three plots, copy the example to a separate config and run it as follows. [CropsNH bonsai recipes](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/loaders/MutationLoader.java#L275-L287)
