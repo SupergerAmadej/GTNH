@@ -55,8 +55,11 @@ local function reserve(x, z, description)
 end
 
 local function cropKey(crop)
-  assert(type(crop) == "string" and hw.normalize(crop) ~= "", "Enter a crop ID for each crop and parent.")
-  return hw.normalize(crop)
+  assert(type(crop) == "string", "Enter a crop ID for each crop and parent.")
+  local name = crop:lower():gsub("^cropsnh:", "")
+  local key = hw.normalize(name)
+  assert(key ~= "", "Enter a crop ID for each crop and parent.")
+  return key
 end
 
 for n, entry in ipairs(config.plots) do
@@ -68,12 +71,15 @@ for n, entry in ipairs(config.plots) do
   local inputs = entry.parents
   if plot.stats then inputs = {left = entry.crop} end
   assert(type(inputs) == "table", "Plot " .. n .. " needs a parents table or stats = true.")
+  -- Preserve the existing checkpoint format for configs with full crop IDs.
+  local signature = {hw.normalize(entry.crop), tostring(plot.stats)}
   for _, offset in ipairs(offsets) do
     local side, dx, dz = offset[1], offset[2], offset[3]
     if inputs[side] then
       local parentX = plot.x + dx
       local key = reserve(parentX, dz, side .. " parent of plot " .. n)
       plot.parents[#plot.parents + 1] = {crop = cropKey(inputs[side]), x = parentX, z = dz, key = key}
+      signature[#signature + 1] = key .. "=" .. hw.normalize(inputs[side])
     end
   end
   local supplied = 0
@@ -82,8 +88,6 @@ for n, entry in ipairs(config.plots) do
   local group = plot.stats and statPlots or breeders
   group[crop] = group[crop] or {}
   group[crop][#group[crop] + 1] = plot
-  local signature = {crop, tostring(plot.stats)}
-  for _, parent in ipairs(plot.parents) do signature[#signature + 1] = parent.key .. "=" .. parent.crop end
   layout[x] = table.concat(signature, ";")
 end
 

@@ -183,6 +183,7 @@ lua cropsnh-breeder.lua any 0
 | Robot waits for charge | Make sure the adjacent Charger has power and a redstone signal. |
 | Robot reports a blocked passage or cannot place sticks | Check the clear flight path, crop-stick height, soil, and the robot's block interaction permissions. |
 | Wheat grows slowly or yields no seeds | Check light, water, fertilizer, and Weed-EX. Allow time for the parent to mature and for low-resistance offspring to drop a seed. |
+| Better Wheat seeds are in the upper chest but parents stay at 1/1/1 | Update `field.lua` to pick up the fix for CropsNH crop IDs. Move the best seed to the lower chest and restart at the dock with the same config. |
 | Robot waits for chest space | Clear space in the chest named on the console. |
 | Script cannot read seed NBT | Check `allowItemStackNBTTags=true` and that the robot has a Data Card with `decodeNBT`. |
 
