@@ -2,7 +2,11 @@ return {
   -- Seconds to give an occupied crossing tile before clearing a stalled crop.
   retrySeconds = 600,
 
-  -- Plots are 4, 8, 12, ... blocks ahead of the dock, in this order.
+  -- Distance to the first center and between centers, in blocks.
+  firstPlot = 4,
+  plotSpacing = 4,
+
+  -- Plots are 4, 8, 12, ... blocks ahead of the dock with the settings above.
   -- Directions are relative to the way the robot faces at the dock.
   -- Parent names are CropsNH crop IDs. The optional label is also accepted on the command line.
   plots = {

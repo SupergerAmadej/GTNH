@@ -20,7 +20,7 @@ Targets CropsNH 2.0.140. The `1/1/1` to `31/31/31` Wheat run passed in simulatio
 | Robot slot | Item |
 | --- | --- |
 | Tool slot | **Reinforced Spade** |
-| Inventory slot 1 | **CropsNH crop sticks**. Start with a stack for field mode or 16 for single-plot mode. |
+| Inventory slot 1 | **CropsNH crop sticks**. Start with a stack for field mode or 16 for single-plot mode. In field mode the robot can refill from the lower chest at the dock. |
 | Inventory slot 2 | **Plant Lens** |
 | Inventory slots 3 onward | Leave empty for seeds and drops. |
 
@@ -99,7 +99,7 @@ lua cropsnh-breeder.lua field Wheat 31/31/31 16
 
 ## Multiple plots with one robot
 
-Use the same dock and an open flight path over loaded ground. Put the centers **4, 8, 12, … blocks** ahead of it, following the order of `plots` in the config. The `left`, `right`, `front`, and `back` parent tiles are immediately adjacent to each center, relative to the robot’s facing at the dock. Leave unused parent tiles empty. [GTNH robot flight settings](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L1594-L1601)
+Use the same dock and an open flight path over loaded ground. In the config, `firstPlot` sets the distance from the dock to the first breeding center, and `plotSpacing` sets the distance between centers. Both default to 4, placing centers at **4, 8, 12, … blocks** ahead of the dock. Each entry in `plots` adds one center. The `left`, `right`, `front`, and `back` parent tiles are one block from their center, relative to the robot’s facing at the dock. Give each center and parent its own tile. [GTNH robot flight settings](https://github.com/GTNewHorizons/GT-New-Horizons-Modpack/blob/2.9.0/config/OpenComputers.cfg#L1594-L1601)
 
 - List each planned cross with its output `crop` ID and `parents`. Use the IDs printed by the script. An optional `label` lets you target the crop by its display name. Duplicate a plot entry to run the same cross at several centers.
 - Use NEI to prepare the soil, sub-soil, and light for each crop. Leave the center and parent tiles bare. Stock the lower chest with one seed per starter parent. Use CropsNH seed bags or regular Wheat Seeds for Wheat. The robot breeds intermediate seeds using the configured crosses. Supply any machine-only intermediate seed from the Crop Breeder.
@@ -114,9 +114,39 @@ lua cropsnh-breeder.lua field "Birch Bonsai" 31/31/31 1 bonsai.lua
 
 The field arguments after the crop name are the **minimum Growth/Gain/Resistance**, the **number of qualifying seeds**, and an optional **config filename**. They default to `1/1/1`, `1`, and `config.lua`.
 
+### Wheat plots on consecutive blocks
+
+Set `firstPlot = 2` and `plotSpacing = 1` to put six Wheat centers at columns **2 through 7**. In each column, prepare farmland for the center under the flight path and for the parent one block left. A running Wheat plot at column 4 can stay in place. Put one starter seed per new plot and spare crop sticks in the lower chest. Cover both rows with Crop Manager care.
+
+```text
+Forward from dock  0  1  2  3  4  5  6  7
+One block left     .  .  P  P  P  P  P  P
+Flight path        D  .  C  C  C  C  C  C
+
+D = dock   P = parent below flight level   C = breeding center below flight level
+```
+
+```lua
+return {
+  retrySeconds = 2400,
+  firstPlot = 2,
+  plotSpacing = 1,
+  plots = {
+    {crop = "wheat", stats = true}, -- 2
+    {crop = "wheat", stats = true}, -- 3
+    {crop = "wheat", stats = true}, -- 4
+    {crop = "wheat", stats = true}, -- 5
+    {crop = "wheat", stats = true}, -- 6
+    {crop = "wheat", stats = true}, -- 7
+  },
+}
+```
+
+Save this as `config.lua` and run `lua cropsnh-breeder.lua field Wheat 31/31/31 16` from the dock. The target of 16 seeds applies to the whole field. CropsNH also considers plants on adjacent centers for breeding. Use wider spacing when separate crosses need distinct parent sets. [CropsNH breeding logic](https://github.com/GTNewHorizons/CropsNH/blob/2.0.140/src/main/java/com/gtnewhorizon/cropsnh/tileentity/TileEntityCropSticks.java#L927-L1023)
+
 ### Restart a field run
 
-Press **Ctrl+C** to stop. The robot tries to return to the dock. If it stops elsewhere, return it by hand and face it down the row before restarting. The program records planted parents in `state/` beside the config. Keep the same positions and assignments when restarting. Add new plots at the end of the config.
+Press **Ctrl+C** to stop. The robot tries to return to the dock. If it stops elsewhere, return it by hand and face it down the row before restarting. The program records planted parents in `state/` beside the config. You can add plots anywhere the spacing allows. Keep each already used plot at its original distance from the dock with the same crop and parents.
 
 If the robot reports an interrupted planting, clear the named parent tile and restart from the dock. Coordinates in messages count blocks forward and right from the dock.
 

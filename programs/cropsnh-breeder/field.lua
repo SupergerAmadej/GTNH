@@ -24,9 +24,30 @@ local retryAfter = config.retrySeconds or 600
 assert(type(retryAfter) == "number" and retryAfter >= 60 and retryAfter < math.huge,
   "retrySeconds must be at least 60.")
 
+local function plotDistance(name)
+  local value = config[name]
+  if value == nil then return 4 end
+  assert(type(value) == "number" and value >= 1 and value < math.huge and value % 1 == 0,
+    name .. " must be a positive whole number of blocks.")
+  return math.floor(value)
+end
+local firstPlot = plotDistance("firstPlot")
+local plotSpacing = plotDistance("plotSpacing")
+
 -- X is forward from the dock. Z is right as seen from the dock.
 local offsets = {{"left", 0, -1}, {"right", 0, 1}, {"front", 1, 0}, {"back", -1, 0}}
 local breeders, statPlots, aliases, layout = {}, {}, {}, {}
+local occupied = {["0,0"] = "the dock"}
+local function reserve(x, z, description)
+  local key = x .. "," .. z
+  local other = occupied[key]
+  if other then
+    error(description .. " overlaps " .. other .. " at " .. key .. ". Check firstPlot, plotSpacing and parent sides.", 0)
+  end
+  occupied[key] = description
+  return key
+end
+
 local function cropKey(crop)
   assert(type(crop) == "string" and hw.normalize(crop) ~= "", "Enter a crop ID for each crop and parent.")
   return hw.normalize(crop)
@@ -34,7 +55,9 @@ end
 
 for n, entry in ipairs(config.plots) do
   local crop = cropKey(entry.crop)
-  local plot = {x = n * 4, crop = crop, stats = entry.stats == true, parents = {}, label = entry.label or entry.crop}
+  local x = firstPlot + (n - 1) * plotSpacing
+  reserve(x, 0, "Center of plot " .. n)
+  local plot = {x = x, crop = crop, stats = entry.stats == true, parents = {}, label = entry.label or entry.crop}
   aliases[cropKey(plot.label)] = crop
   local inputs = entry.parents
   if plot.stats then inputs = {left = entry.crop} end
@@ -42,8 +65,9 @@ for n, entry in ipairs(config.plots) do
   for _, offset in ipairs(offsets) do
     local side, dx, dz = offset[1], offset[2], offset[3]
     if inputs[side] then
-      local x, z = plot.x + dx, dz
-      plot.parents[#plot.parents + 1] = {crop = cropKey(inputs[side]), x = x, z = z, key = x .. "," .. z}
+      local parentX = plot.x + dx
+      local key = reserve(parentX, dz, side .. " parent of plot " .. n)
+      plot.parents[#plot.parents + 1] = {crop = cropKey(inputs[side]), x = parentX, z = dz, key = key}
     end
   end
   local supplied = 0
@@ -54,7 +78,7 @@ for n, entry in ipairs(config.plots) do
   group[crop][#group[crop] + 1] = plot
   local signature = {crop, tostring(plot.stats)}
   for _, parent in ipairs(plot.parents) do signature[#signature + 1] = parent.key .. "=" .. parent.crop end
-  layout[n] = table.concat(signature, ";")
+  layout[x] = table.concat(signature, ";")
 end
 
 local target = aliases[cropKey(targetArg)] or cropKey(targetArg)
@@ -67,7 +91,6 @@ assert((inventory.getInventorySize(seedSide) or 0) > 0 and (inventory.getInvento
   "Start at the dock facing the plots, with the seed chest underneath and the output chest above.")
 
 local statePath = filesystem.concat(filesystem.path(configPath), "state", filesystem.name(configPath) .. ".field")
-local signature = table.concat(layout, "|")
 local state, hasCheckpoint
 for slot = 0, 1 do
   local path = statePath .. "." .. slot
@@ -82,11 +105,30 @@ for slot = 0, 1 do
   end
 end
 assert(state or not hasCheckpoint, "Could not read the field checkpoints at " .. statePath)
-state = state or {layout = signature, revision = 0, parents = {}, centers = {}}
-assert(type(state.layout) == "string" and state.parents and state.centers
-    and (state.layout == signature or signature:sub(1, #state.layout + 1) == state.layout .. "|"),
-  "The saved field layout differs. Use a separate config file for a new layout.")
-state.layout = signature
+state = state or {layout = layout, revision = 0, parents = {}, centers = {}}
+local savedLayout = state.layout
+if type(savedLayout) == "string" then
+  -- Older checkpoints stored plot definitions in order at 4, 8, 12, ...
+  local x = 0
+  local legacy = savedLayout
+  savedLayout = {}
+  for definition in legacy:gmatch("[^|]+") do
+    x = x + 4
+    savedLayout[x] = definition
+  end
+end
+assert(type(savedLayout) == "table" and type(state.parents) == "table" and type(state.centers) == "table",
+  "Invalid saved field layout at " .. statePath)
+for x, definition in pairs(savedLayout) do
+  if layout[x] ~= definition then
+    local used = state.centers[x]
+    for key in definition:gmatch(";([^;=]+)=") do
+      used = used or state.parents[key] or (state.pending and state.pending.key == key)
+    end
+    assert(not used, "Keep the existing plot " .. x .. " blocks ahead of the dock and its parent assignments.")
+  end
+end
+state.layout = layout
 
 local function save()
   local directory = filesystem.path(statePath)
@@ -142,7 +184,20 @@ local function charge(distance)
   repeat os.sleep(5) until computer.energy() >= needed
 end
 
+local function refillSticks()
+  local count = robot.count(hw.sticksSlot)
+  if count >= 8 then return end
+  for slot = 1, inventory.getInventorySize(seedSide) or 0 do
+    local stack = inventory.getStackInSlot(seedSide, slot)
+    if stack and stack.name == hw.cropSticks then
+      robot.select(hw.sticksSlot)
+      if inventory.suckFromSlot(seedSide, slot, math.min(64 - count, stack.size)) then return end
+    end
+  end
+end
+
 local function trip(toX, toZ, work)
+  refillSticks()
   charge(toX + math.abs(toZ))
   travel(toX, toZ)
   local result = work()
