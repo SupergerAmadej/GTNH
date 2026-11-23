@@ -34,3 +34,4 @@ Use `main` to fetch the latest pushed code while developing. Replace `main` with
 - [Factory Control](programs/factory-control/README.md) maps multiblocks reported by wireless agents and provides per-controller details and work controls.
 - [HDD copy](programs/hdd-copy/README.md) copies the contents of a managed OpenComputers HDD to an empty drive.
 - [LSC power monitor](programs/lsc-power-monitor/README.md) shows charge, input, output, and passive loss for a Lapotronic Supercapacitor.
+- [Vacuum reactor control](programs/vacuum-reactor/README.md) swaps coolant and fuel locally, manages battery charge during a central outage, and provides a fleet dashboard with per-reactor shutdown.
