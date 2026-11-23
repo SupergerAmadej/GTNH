@@ -35,4 +35,4 @@ if not ok then
   io.stderr:write(tostring(reason) .. "\n")
   return
 end
-print("Installed from " .. ref .. ". Copy config.example.lua to config.lua and edit your role's settings.")
+print("Installed from " .. ref .. ". Run vacuum-reactor.lua central or vacuum-reactor.lua agent. Configuration is optional.")
