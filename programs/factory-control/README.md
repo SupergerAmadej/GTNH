@@ -46,6 +46,8 @@ This enables per-machine controls for that run using the saved central modem add
 
 For a manual pairing, you can keep controls enabled in normal `agent` mode by setting `agent.centralModem` and `agent.allowControl = true` in the local config.
 
+To opt into controls before pairing, run `lua factory-control.lua agent-control-pair` on the agent, then select it under **Add agent** on central. The agent enables controls once it saves the pairing and accepts work commands from that central modem. HDD copy uses this mode when you select `factory-control:agent-control`. [HDD copy setup](../hdd-copy/README.md#copy-an-agent-with-machine-controls)
+
 ### Start agent-control at boot
 
 On a paired agent, stop the foreground process with **Ctrl+C**. Run these commands from the same directory you used to pair it. Use the filename you downloaded in the first command.

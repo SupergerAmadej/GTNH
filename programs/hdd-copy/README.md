@@ -35,6 +35,14 @@ On a copy of OpenOS, `/home/.shrc` launches the new program in the foreground wh
 
 Use `factory-control` for central mode or `factory-control:agent` for agent mode. Hardware, pairing, and any program-specific configuration follow the selected program's README.
 
+### Copy an agent with machine controls
+
+```sh
+lua /programs/hdd-copy.lua SOURCE_ADDRESS DESTINATION_ADDRESS factory-control:agent-control
+```
+
+Boot the destination HDD in the agent computer. When the agent asks to pair, open **Add agent** on the Factory Control central screen and select the agent. After pairing, controls are enabled immediately and stay enabled on subsequent starts. The new installation stores its pairing in its own `state/` directory. If the clone contains a previous Factory Control boot service, the startup command stops it before launching the new copy.
+
 ## Compatibility
 
 Targets GTNH 2.9.0 OpenOS and managed HDDs. In-game verification is pending.

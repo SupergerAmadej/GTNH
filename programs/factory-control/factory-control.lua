@@ -214,7 +214,7 @@ local function agentComponentLimit(configuredLimit)
   if not multipleCPUs then return defaults[cpuTier] end
 end
 
-local function runAgent(settings, send, receive, statePath, requestControl, service)
+local function runAgent(settings, send, receive, statePath, requestControl, service, pairForControl)
   local legacy = settings.controller
   local configured = settings.controllers
   if legacy ~= nil then
@@ -229,10 +229,10 @@ local function runAgent(settings, send, receive, statePath, requestControl, serv
     end
   end
   local central, pinned = pairedCentral(settings, statePath)
-  assert(not requestControl or central, "Pair this computer in agent mode before running agent-control")
+  assert(not requestControl or central or pairForControl,
+    "Pair this computer in agent mode before running agent-control")
   assert(not service or central == service.central, "Central pairing changed. Register agent-autostart again.")
-  -- Require a local opt-in tied to an already known central modem.
-  local allowControl = requestControl or (settings.allowControl == true and pinned)
+  local allowControl = central ~= nil and (requestControl or (settings.allowControl == true and pinned))
   local componentLimit = agentComponentLimit(settings.componentLimit)
   local ownAddress = computer.address()
   local token
@@ -240,7 +240,9 @@ local function runAgent(settings, send, receive, statePath, requestControl, serv
   assert(label == nil or (isLabel(label) and #label <= 64), "Set agent.name to a label of up to 64 characters")
   if not central then
     token = require("uuid").next()
-    print("Open Add agent on central. Ctrl+C to exit.")
+    local prompt = pairForControl and "Open Add agent on central to pair and enable machine control."
+      or "Open Add agent on central."
+    print(prompt .. " Ctrl+C to exit.")
   else
     local mode = allowControl and "Machine control enabled" or "Monitoring only"
     local stopHint = service and "rc factory-control stop to exit." or "Ctrl+C to exit."
@@ -331,7 +333,9 @@ local function runAgent(settings, send, receive, statePath, requestControl, serv
       local saved, reason = pcall(savePair, statePath, sender)
       if saved then
         central, nextSample = sender, 0
-        print("Paired with central " .. central .. ". Monitoring only.")
+        allowControl = pairForControl
+        local mode = allowControl and "Machine control enabled." or "Monitoring only."
+        print("Paired with central " .. central .. ". " .. mode)
       else
         print("Could not save pairing: " .. tostring(reason))
       end
@@ -1231,7 +1235,8 @@ program("central", %q, {requireConfig = %s, hall = %s})
 end
 
 local role, first, second, third, extra = ...
-local requestControl = role == "agent-control"
+local pairForControl = role == "agent-control-pair"
+local requestControl = role == "agent-control" or pairForControl
 local installService = role == "agent-autostart"
 local installCentral = role == "central-autostart"
 if installCentral or role == "dashboard" then role = "central" end
@@ -1241,7 +1246,7 @@ local service = requestControl and launch or nil
 if launch then second = nil end
 if requestControl or installService then role = "agent" end
 if extra or (role ~= "agent" and role ~= "central") or (role == "agent" and second) then
-  print("Usage: lua factory-control.lua agent|agent-control|agent-autostart [config.lua]")
+  print("Usage: lua factory-control.lua agent|agent-control|agent-control-pair|agent-autostart [config.lua]")
   print("       lua factory-control.lua -- central|central-autostart [X1,Z1 X2,Z2] [config.lua]")
   print("       lua factory-control.lua central-autostart off")
   return
@@ -1352,7 +1357,7 @@ local function main()
   assert(modem.open(port), "Port is already open on this modem. Stop the other program or change port.")
   local ok, reason
   if role == "agent" then
-    ok, reason = pcall(runAgent, settings, send, receive, statePath, requestControl, service)
+    ok, reason = pcall(runAgent, settings, send, receive, statePath, requestControl, service, pairForControl)
   else
     ok, reason = pcall(runCentral, settings, send, receive, statePath, gpu, screen, hall, alarm)
   end

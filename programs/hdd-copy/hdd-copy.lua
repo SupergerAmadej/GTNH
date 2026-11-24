@@ -30,8 +30,11 @@ if not sourcePrefix or not destinationPrefix or select("#", ...) > 3
 end
 
 local launchArgs = ""
+local pairForControl = program == "factory-control:agent-control"
 if program then
-  if program == "factory-control:agent" then
+  if pairForControl then
+    program, launchArgs = "factory-control", " agent-control-pair"
+  elseif program == "factory-control:agent" then
     program, launchArgs = "factory-control", " agent"
   elseif program == "factory-control" then
     launchArgs = " central"
@@ -192,6 +195,9 @@ local function installProgram()
     assert(not destination.isDirectory(shrc), shrc .. " must be a file.")
     assert(not destination.exists(stagedShrc), "Temporary startup file already exists.")
     local command = string.format("cd %s && %s/%s%s; cd /home\n", directory, directory, entry, launchArgs)
+    if pairForControl and destination.exists("/etc/rc.d/factory-control.lua") then
+      command = "rc factory-control stop && " .. command
+    end
     withFile(filesystem, mountPath .. stagedShrc, "wb", function(outputFile)
       assert(outputFile:write(command))
       if destination.exists(shrc) then
